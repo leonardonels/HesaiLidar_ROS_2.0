@@ -29,6 +29,7 @@
  */
 
 #include "hesai_ros_driver/node_manager.h"
+
 void NodeManager::Init(const YAML::Node& config)
 {
   YAML::Node lidar_config = YamlSubNodeAbort(config, "lidar");

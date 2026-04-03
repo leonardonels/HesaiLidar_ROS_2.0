@@ -28,6 +28,14 @@
  * Created on June 12, 2023, 10:46 AM
  */
 
+/*
+ * TODO:
+ * - [ ] verify whata ptp pipeline actually does
+ * - [ ] apply to the imu the same rotation as the point cloud
+ * - [ ] verify where the ring option of the pcl is used and maybe lost in the ROS2 pipeline and add it back
+ * - [ ] write a cuda kernel function to optimize the bubble/cube filtering
+ */
+
 #include "hesai_ros_driver/driver/source_driver_ros2.hpp"
 
 /*
