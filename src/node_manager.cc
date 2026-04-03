@@ -28,7 +28,7 @@
  * Created on June 12, 2023, 10:46 AM
  */
 
-#include "manager/node_manager.h"
+#include "hesai_ros_driver/node_manager.h"
 void NodeManager::Init(const YAML::Node& config)
 {
   YAML::Node lidar_config = YamlSubNodeAbort(config, "lidar");
@@ -76,39 +76,22 @@ std::vector<SourceDriver::Ptr> NodeManager::GetSourcesDriver()
 bool NodeManager::IsPlayEnded() {
   int num = GetSourcesDriver().size();
   bool all_pcap_end = true;
-#ifdef ROS_FOUND
-    for (int i = 0; i < num; i++) {
-      all_pcap_end = GetSourcesDriver()[i]->driver_ptr_->lidar_ptr_->IsPlayEnded();
-      if (!all_pcap_end) {
-        break;
-      } 
+  for (int i = 0; i < num; i++) {
+    all_pcap_end = GetSourcesDriver()[i]->driver_ptr_->lidar_ptr_->IsPlayEnded();
+    if (!all_pcap_end) {
+      break;
     }
-    if (all_pcap_end) {
-      std::this_thread::sleep_for(std::chrono::seconds(3));
-      printf("-----------------%d pcap(s) end, we will close the node(s)!!!-----------------\n", num);
-      if (system("rosnode kill rviz") == -1) {
-        printf("Command Execution Error: rosnode kill rviz\n");
-        all_pcap_end = false;;
-      }
-    } 
-#elif ROS2_FOUND
-    for (int i = 0; i < num; i++) {
-      all_pcap_end = GetSourcesDriver()[i]->driver_ptr_->lidar_ptr_->IsPlayEnded();
-      if (!all_pcap_end) {
-        break;
-      } 
+  }
+  if (all_pcap_end) {
+    std::this_thread::sleep_for(std::chrono::seconds(3));
+    printf("-----------------%d pcap(s) end, we will close the node(s)!!!-----------------\n", num);
+    std::cout.flush();
+    if (system("pkill -f rviz2") == -1) {
+      printf("Command Execution Error: pkill -f rviz2\n");
+      all_pcap_end = false;
     }
-    if (all_pcap_end) {
-      std::this_thread::sleep_for(std::chrono::seconds(3));
-      printf("-----------------%d pcap(s) end, we will close the node(s)!!!-----------------\n", num);
-      std::cout.flush();
-      if (system("pkill -f rviz2") == -1) {
-        printf("Command Execution Error: pkill -f rviz2\n");
-        all_pcap_end = false;
-      }
-      std::this_thread::sleep_for(std::chrono::microseconds(1));
-      std::cout.flush();
-    }
-#endif
-return all_pcap_end;
+    std::this_thread::sleep_for(std::chrono::microseconds(1));
+    std::cout.flush();
+  }
+  return all_pcap_end;
 }

@@ -3,7 +3,7 @@
  * @brief BARQ (Burst Access Reader Queue) Implementation - Ultra-Fast "Shoot and Forget"
  */
 
-#include "barq.hpp"
+#include "barq/barq.hpp"
 
 #include <sys/mman.h>
 #include <sys/stat.h>

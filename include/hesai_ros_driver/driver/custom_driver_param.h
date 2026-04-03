@@ -4,7 +4,7 @@
  * Car points filter options
  ************************************************************************************************/
 #pragma once
-#include "HesaiLidar_SDK_2.0/libhesai/driver_param.h"
+#include "driver_param.h"
 
 namespace hesai {
 namespace lidar {

@@ -30,12 +30,8 @@
 
 #pragma once
 #define BOOST_BIND_GLOBAL_PLACEHOLDERS // retain the Bind placeholders (_1, _2, ...) in the global namespace
-#include "utility/yaml_reader.hpp"
-#ifdef ROS_FOUND
-#include "source_driver_ros1.hpp"
-#elif ROS2_FOUND
-#include "source_driver_ros2.hpp"
-#endif
+#include "hesai_ros_driver/utils/yaml_reader.hpp"
+#include "hesai_ros_driver/driver/source_driver_ros2.hpp"
 
 class NodeManager
 {

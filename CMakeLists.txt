@@ -14,10 +14,9 @@ configure_file(
 )
 
 set(WITH_PTCS_USE ON CACHE BOOL "Use Ptcs")
-# set(FIND_CUDA ON CACHE BOOL "Find CUDA")
 
 # uncomment to use gpu acceleration
-find_package(CUDA QUIET)  
+find_package(CUDA QUIET)
 
 if(${CUDA_FOUND})
   message(=============================================================)
@@ -29,7 +28,7 @@ if(${CUDA_FOUND})
 	set(CUDA_SEPARABLE_COMPILATION ON)
 	include_directories(${CUDA_INCLUDE_DIRS})
 	set(CUDA_PROPAGATE_HOST_FLAGS OFF)
-	set(CUDA_NVCC_FLAGS -arch=sm_61;-O3;-G;-g;)#根据具体GPU性能更改算力参数
+	set(CUDA_NVCC_FLAGS -arch=sm_61;-O3;-G;-g;)
 	link_directories($ENV{CUDA_PATH}/lib/x64)
 
   add_definitions(-DUSE_CUDA)
@@ -44,14 +43,6 @@ endif()
 # Custom Point Type (XYZI, XYZIRT)
 #=======================================
 set(POINT_TYPE XYZI)
-
-#=======================================
-# Compile setup (ORIGINAL, CATKIN, COLCON)
-#=======================================
-message(=============================================================)
-message("-- ROS_VERSION is $ENV{ROS_VERSION}")
-message(=============================================================)
-
 
 #========================
 # Project details / setup
@@ -71,7 +62,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 elseif(($ENV{ROS_DISTRO} STREQUAL "jazzy"))
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++17")
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
-elseif($ENV{ROS_DISTRO} STREQUAL "humble")  # the ros2 humble requires c++17
+elseif($ENV{ROS_DISTRO} STREQUAL "humble")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++17")
 else()
 add_definitions(-std=c++14)
@@ -83,95 +74,39 @@ add_compile_options(-Wall)
 # Dependencies Setup
 #========================
 
-#ROS#
-#Catkin#
-if($ENV{ROS_VERSION} MATCHES "1")
-  find_package(roscpp 1.12 QUIET)
-  find_package(roslib QUIET)
-  include_directories(${roscpp_INCLUDE_DIRS} ${roslib_INCLUDE_DIRS})
-  set(ROS_LIBS ${roscpp_LIBRARIES} ${roslib_LIBRARIES})
-  add_definitions(-DROS_FOUND)
-  add_definitions(-DRUN_IN_ROS_WORKSPACE)
+find_package(rclcpp REQUIRED)
+include_directories(${rclcpp_INCLUDE_DIRS})
+set(CMAKE_CXX_STANDARD 14)
 
-  find_package(catkin REQUIRED COMPONENTS
-    roscpp
-    sensor_msgs
-    std_msgs
-    message_generation
-    roslib)
+find_package(ament_cmake REQUIRED)
+find_package(sensor_msgs REQUIRED)
+find_package(std_msgs REQUIRED)
+find_package(rclcpp_action REQUIRED)
+find_package(rosidl_typesupport_c REQUIRED)
+find_package(rosidl_default_generators REQUIRED)
+find_package(builtin_interfaces REQUIRED)
 
-  add_message_files(
-    FILES
-    "UdpPacket.msg"
-    "UdpFrame.msg"
-    "LossPacket.msg"
-    "Ptp.msg"
-    "Firetime.msg"
-  )
-
-  generate_messages(
-    DEPENDENCIES
-    std_msgs
-  )
-
-
-  catkin_package(CATKIN_DEPENDS 
-    sensor_msgs 
-    roslib)
-
-endif($ENV{ROS_VERSION} MATCHES "1")
-
-#ROS2#
-if($ENV{ROS_VERSION} MATCHES "2")
-
-  find_package(rclcpp QUIET)
-  if(rclcpp_FOUND)
-
-    message(=============================================================)
-    message("-- ROS2 Found. ROS2 Support is turned On.")
-    message(=============================================================)
-
-    add_definitions(-DROS2_FOUND)
-    include_directories(${rclcpp_INCLUDE_DIRS})
-    set(CMAKE_CXX_STANDARD 14)
-
-    find_package(ament_cmake REQUIRED)
-    find_package(sensor_msgs REQUIRED)
-    find_package(std_msgs REQUIRED)  
-    find_package(rclcpp_action REQUIRED)
-    find_package(rosidl_typesupport_c REQUIRED) 
-    find_package(rosidl_default_generators REQUIRED)
-    find_package(builtin_interfaces REQUIRED)
-    find_package(std_msgs REQUIRED)
-    
-    rosidl_generate_interfaces(${PROJECT_NAME}
-      "msg/msg_ros2/UdpPacket.msg"
-      "msg/msg_ros2/UdpFrame.msg"
-      "msg/msg_ros2/Firetime.msg"
-      "msg/msg_ros2/Ptp.msg"
-      "msg/msg_ros2/LossPacket.msg"
-      DEPENDENCIES builtin_interfaces std_msgs
-    )
-    ament_export_dependencies(rosidl_default_runtime)                 
-    
-  else(rclcpp_FOUND)
-
-    message(=============================================================)
-    message("-- ROS2 Not Found. ROS2 Support is turned Off.")
-    message(=============================================================)
-
-  endif(rclcpp_FOUND )
-endif($ENV{ROS_VERSION} MATCHES "2")
-
+rosidl_generate_interfaces(${PROJECT_NAME}
+  "msg/UdpPacket.msg"
+  "msg/UdpFrame.msg"
+  "msg/Firetime.msg"
+  "msg/Ptp.msg"
+  "msg/LossPacket.msg"
+  DEPENDENCIES builtin_interfaces std_msgs
+)
+ament_export_dependencies(rosidl_default_runtime)
 
 #Others#
 find_package(yaml-cpp REQUIRED)
 
-#Include directory#
-include_directories(${PROJECT_SOURCE_DIR}/src)
+#Include directories#
+include_directories(
+  ${PROJECT_SOURCE_DIR}/include
+  ${PROJECT_SOURCE_DIR}/src/driver/HesaiLidar_SDK_2.0/libhesai
+)
 
 #Driver core#
-set(DISENABLE_TEST_CC ON CACHE BOOL "DISENABLE_TEST_CC")  
+set(DISENABLE_TEST_CC ON CACHE BOOL "DISENABLE_TEST_CC")
 add_subdirectory(src/driver/HesaiLidar_SDK_2.0)
 
 #========================
@@ -182,7 +117,7 @@ find_package(Boost REQUIRED COMPONENTS thread)
 include_directories(${Boost_INCLUDE_DIRS})
 link_directories(${Boost_LIBRARY_DIRS})
 
-set(LIB_TARGETS 
+set(LIB_TARGETS
     hesai_sdk_lib
     log_lib
     lidar_lib
@@ -195,8 +130,9 @@ set(LIB_TARGETS
 
 if(${CUDA_FOUND})
   add_executable(hesai_ros_driver_node
-    node/hesai_ros_driver_node.cu
-    src/manager/node_manager.cc
+    src/hesai_ros_driver_node.cu
+    src/node_manager.cc
+    src/driver/source_driver_ros2.cpp
     src/barq/barq.cpp
     )
   set(LIB_TARGETS
@@ -205,60 +141,42 @@ if(${CUDA_FOUND})
     )
 else()
   add_executable(hesai_ros_driver_node
-    node/hesai_ros_driver_node.cc
-    src/manager/node_manager.cc
+    src/hesai_ros_driver_node.cc
+    src/node_manager.cc
+    src/driver/source_driver_ros2.cpp
     src/barq/barq.cpp
     )
 endif()
-target_link_libraries(hesai_ros_driver_node                   
+target_link_libraries(hesai_ros_driver_node
             ${YAML_CPP_LIBRARIES}
             ${Boost_LIBRARIES}
             ${LIB_TARGETS}
             rt
-            pthread 
-)    
+            pthread
+)
 
 target_compile_options(hesai_ros_driver_node PRIVATE
   -Wno-class-memaccess
   -Wno-unused-variable
-) 
+)
 
 target_include_directories(hesai_ros_driver_node PRIVATE
-  src/barq
-  src/manager
-  src/msg/ros_msg
-  src/msg/rs_msg
-  src/utility
   ${CMAKE_CURRENT_BINARY_DIR}
-)  
+)
 
-#Ros#
-if($ENV{ROS_VERSION} MATCHES "1")
-  target_link_libraries(hesai_ros_driver_node  ${ROS_LIBS})
-  install(TARGETS hesai_ros_driver_node ${LIB_TARGETS}
-          RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
-          LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
-          ARCHIVE DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION})
-  install(DIRECTORY
-          launch
-          rviz
-          config
-          DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION})
-endif($ENV{ROS_VERSION} MATCHES "1")
+#========================
+# ROS2 Install & Package
+#========================
 
-#Ros2#
-
-if($ENV{ROS_VERSION} MATCHES "2")
-  find_package(ament_index_cpp REQUIRED)
-  ament_target_dependencies(hesai_ros_driver_node 
+find_package(ament_index_cpp REQUIRED)
+ament_target_dependencies(hesai_ros_driver_node
   "ament_index_cpp"
   "rcl_interfaces"
-  "rclcpp" 
+  "rclcpp"
   "rcutils"
-  "std_msgs" 
-  "sensor_msgs" 
-  # "tf2_geometry_msgs"
-  )
+  "std_msgs"
+  "sensor_msgs"
+)
 
 if(($ENV{ROS_DISTRO} STREQUAL "kilted") OR ($ENV{ROS_DISTRO} STREQUAL "jazzy") OR ($ENV{ROS_DISTRO} STREQUAL "humble"))
   rosidl_get_typesupport_target(cpp_typesupport_target "${PROJECT_NAME}" "rosidl_typesupport_cpp")
@@ -267,21 +185,21 @@ else()
   rosidl_target_interfaces(hesai_ros_driver_node  ${PROJECT_NAME} "rosidl_typesupport_cpp")
 endif()
 
-  install(TARGETS
-          hesai_ros_driver_node
-          DESTINATION lib/${PROJECT_NAME})
-  install(TARGETS
-          ${LIB_TARGETS}
-          DESTINATION lib)
+install(TARGETS
+        hesai_ros_driver_node
+        DESTINATION lib/${PROJECT_NAME})
+install(TARGETS
+        ${LIB_TARGETS}
+        DESTINATION lib)
 
-  install(DIRECTORY
-          launch
-          rviz
-          config
-          DESTINATION share/${PROJECT_NAME})
+install(DIRECTORY
+        include/
+        DESTINATION include)
 
-  ament_package()
+install(DIRECTORY
+        launch
+        rviz
+        config
+        DESTINATION share/${PROJECT_NAME})
 
-endif($ENV{ROS_VERSION} MATCHES "2")
-
-
+ament_package()
