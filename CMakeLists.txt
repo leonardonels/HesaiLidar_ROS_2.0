@@ -98,6 +98,7 @@ ament_export_dependencies(rosidl_default_runtime)
 
 #Others#
 find_package(yaml-cpp REQUIRED)
+find_package(barq REQUIRED)
 
 #Include directories#
 include_directories(
@@ -133,7 +134,6 @@ if(${CUDA_FOUND})
     src/hesai_ros_driver_node.cu
     src/node_manager.cc
     src/driver/source_driver_ros2.cpp
-    src/barq/barq.cpp
     )
   set(LIB_TARGETS
     ${LIB_TARGETS}
@@ -144,7 +144,6 @@ else()
     src/hesai_ros_driver_node.cc
     src/node_manager.cc
     src/driver/source_driver_ros2.cpp
-    src/barq/barq.cpp
     )
 endif()
 target_link_libraries(hesai_ros_driver_node
@@ -176,6 +175,7 @@ ament_target_dependencies(hesai_ros_driver_node
   "rcutils"
   "std_msgs"
   "sensor_msgs"
+  "barq"
 )
 
 if(($ENV{ROS_DISTRO} STREQUAL "kilted") OR ($ENV{ROS_DISTRO} STREQUAL "jazzy") OR ($ENV{ROS_DISTRO} STREQUAL "humble"))
