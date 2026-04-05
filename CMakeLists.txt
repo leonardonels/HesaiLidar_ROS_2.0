@@ -1,6 +1,10 @@
 cmake_minimum_required(VERSION 3.5)
 cmake_policy(SET CMP0048 NEW)
 project(hesai_ros_driver)
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+add_compile_options(-Wall)
 
 #=======================================
 # Options and configurations
@@ -98,18 +102,12 @@ if (CMAKE_BUILD_TYPE STREQUAL "")
   add_definitions(-O3)
 endif()
 
-set(CMAKE_CXX_STANDARD 17)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
-
-add_compile_options(-Wall)
-
 #========================
 # Dependencies Setup
 #========================
 
 find_package(rclcpp REQUIRED)
 include_directories(${rclcpp_INCLUDE_DIRS})
-set(CMAKE_CXX_STANDARD 14)
 
 find_package(ament_cmake REQUIRED)
 find_package(sensor_msgs REQUIRED)
