@@ -35,6 +35,7 @@
  * - [x] verify where the ring option of the pcl is used and maybe lost in the ROS2 pipeline and add it back
  *        -> is not, it is the uint16_t sized element.
  * - [ ] write a cuda kernel function to optimize the bubble/cube filtering
+ * - [ ] parametrize the baqr "topic name"
  */
 
 #include "hesai_ros_driver/driver/source_driver_ros2.hpp"
@@ -107,10 +108,27 @@ void SourceDriver::Init(const YAML::Node& config)
   driver_ptr_.reset(new HesaiLidarSdk<LidarPointXYZIRT>());
   driver_param.decoder_param.enable_parser_thread = true;
   if (driver_param.input_param.send_point_cloud_ros) {
-    driver_ptr_->RegRecvCallback([this](const hesai::lidar::LidarDecodedFrame<hesai::lidar::LidarPointXYZIRT>& frame) {
-      this->SendPointCloud(frame);
+    driver_ptr_->RegRecvCallback([this](const LidarDecodedFrame<LidarPointXYZIRT>& frame) {
+      this->SendPointCloudWithRos(frame);
     });
   }
+#ifdef ENABLE_BARQ
+  if (driver_param.custom_param.BARQ_enable) {
+    const size_t kMaxPoints = 300000;
+    barq_max_size_ = sizeof(BARQFrameHeader) + kMaxPoints * sizeof(BARQPoint) + 512;
+    barq_writer_   = std::make_unique<BARQ::Writer>("/hesai_pointcloud", barq_max_size_, false);
+    if (barq_writer_->init()) {
+      barq_enabled_ = true;
+      driver_ptr_->RegRecvCallback([this](const LidarDecodedFrame<LidarPointXYZIRT>& frame) {
+        this->SendPointCloudWithBarq(frame);
+      });
+      RCLCPP_INFO(node_ptr_->get_logger(), "BARQ writer initialized (%zu bytes).", barq_max_size_);
+    } else {
+      RCLCPP_ERROR(node_ptr_->get_logger(), "Failed to initialize BARQ writer.");
+      barq_writer_.reset();
+    }
+  }
+#endif
   if (driver_param.input_param.send_imu_ros) {
     driver_ptr_->RegRecvCallback(std::bind(&SourceDriver::SendImuConfig, this, std::placeholders::_1));
   }
@@ -133,35 +151,6 @@ void SourceDriver::Init(const YAML::Node& config)
     std::cout << "Driver Initialize Error...." << std::endl;
     exit(-1);
   }
-
-#ifdef ENABLE_BARQ
-  if (driver_param.custom_param.BARQ_enable) {
-    RCLCPP_INFO(node_ptr_->get_logger(), "BARQ shared memory publishing for point clouds is enabled.");
-
-    // Estimate max point cloud size:
-    // Max points for your LiDAR model × point_step (26 bytes for XYZIRF64)
-    // 128 beams × 1800 azimuth steps = ~230400 points worst case
-    const size_t kMaxPoints = 300000;
-    const size_t kPointStep = sizeof(float) * 4
-                            + sizeof(uint16_t)
-                            + sizeof(double);
-    const size_t kHeaderBytes = sizeof(uint32_t) * 3
-                              + sizeof(double);
-    barq_max_size_ = kMaxPoints * kPointStep + kHeaderBytes + 512;
-
-    barq_writer_ = std::make_unique<BARQ::Writer>("/hesai_pointcloud", barq_max_size_, false);
-
-    if (!barq_writer_->init()) {
-      RCLCPP_ERROR(node_ptr_->get_logger(), "Failed to initialize BARQ writer for /hesai_pointcloud, falling back to ROS2 topics only.");
-      barq_writer_.reset();
-    } else {
-      barq_enabled_ = true;
-      RCLCPP_INFO(node_ptr_->get_logger(), "BARQ writer initialized for /hesai_pointcloud with max size %zu bytes.", barq_max_size_);
-    }
-  } else {
-    RCLCPP_INFO(node_ptr_->get_logger(), "BARQ shared memory publishing for point clouds is disabled.");
-  }
-#endif
 }
 
 /*
@@ -216,6 +205,53 @@ void SourceDriver::SendPacket(const UdpFrame_t& msg, double timestamp)
   pkt_pub_->publish(ToRosMsg(msg, timestamp));
 }
 
+#ifdef ENABLE_BARQ
+/*
+ * Serializes a decoded point cloud frame into a vector of bytes suitable for BARQ shared-memory publishing.
+ *
+ * This function converts the point cloud data into a format that can be efficiently written to BARQ shared memory.
+ * In the future, this could be optimise to remove unwanted fields like ring or timestamp if they are not needed by the consumer
+ * In the future, this could be optimized further by implementing the serialization directly in the SDK's decode thread to avoid the extra copy.
+ */
+std::vector<uint8_t> SourceDriver::SerializePointCloudForBarq(const LidarDecodedFrame<LidarPointXYZIRT>& frame)
+{
+  const size_t payload_size = sizeof(BARQFrameHeader) + frame.points_num * sizeof(BARQPoint);
+  std::vector<uint8_t> buf(payload_size);
+  uint8_t* ptr = buf.data();
+
+  BARQFrameHeader hdr;
+  hdr.width      = frame.points_num;
+  hdr.height     = 1;
+  hdr.point_step = sizeof(BARQPoint);
+  hdr.timestamp  = frame.frame_start_timestamp;
+  std::memcpy(ptr, &hdr, sizeof(hdr));
+  ptr += sizeof(hdr);
+
+  for (uint32_t i = 0; i < frame.points_num; ++i) {
+    const auto& src = frame.points[i];
+    BARQPoint dst;
+    dst.x         = src.x;
+    dst.y         = src.y;
+    dst.z         = src.z;
+    dst.intensity = static_cast<float>(src.intensity);
+    dst.ring      = src.ring;
+    dst.timestamp = src.timestamp;
+    std::memcpy(ptr, &dst, sizeof(dst));
+    ptr += sizeof(dst);
+  }
+
+  return buf;
+}
+
+void SourceDriver::SendPointCloudWithBarq(const LidarDecodedFrame<LidarPointXYZIRT>& frame)
+{
+  if (!barq_enabled_ || !barq_writer_) return;
+  std::vector<uint8_t> buf = SerializePointCloudForBarq(frame);
+  const size_t payload_size = sizeof(BARQFrameHeader) + frame.points_num * sizeof(BARQPoint); 
+  barq_writer_->write(buf.data(), payload_size);
+}
+#endif
+
 /*
  * Converts a decoded point cloud frame to sensor_msgs::PointCloud2 and
  * publishes it on the ROS2 point cloud topic. Optionally also writes the
@@ -226,7 +262,7 @@ void SourceDriver::SendPacket(const UdpFrame_t& msg, double timestamp)
  * with the current ROS clock time so that end-to-end latency can be
  * measured by the subscriber.
  */
-void SourceDriver::SendPointCloud(const LidarDecodedFrame<LidarPointXYZIRT>& msg)
+void SourceDriver::SendPointCloudWithRos(const LidarDecodedFrame<LidarPointXYZIRT>& msg)
 {
   sensor_msgs::msg::PointCloud2 ros_msg = ToRosMsg(msg, frame_id_);
   // For latency testing, we set the timestamp to the current time when the point cloud is received
@@ -234,48 +270,7 @@ void SourceDriver::SendPointCloud(const LidarDecodedFrame<LidarPointXYZIRT>& msg
     auto now = rclcpp::Clock(RCL_ROS_TIME).now();
     ros_msg.header.stamp = now;
   }
-  if (driver_param.input_param.send_point_cloud_ros) pub_->publish(ros_msg);
-
-#ifdef ENABLE_BARQ
-  // Publish via BARQ shared memory if enabled
-  if (barq_enabled_ && barq_writer_) {
-    // ros_msg.data already contains the packed binary point data
-    // We prepend a small fixed header so readers know width/height/point_step
-    // without needing to parse a full ROS2 PointCloud2 message.
-
-    // Layout written to SHM:
-    //  [0..3]   uint32  width         (number of valid points)
-    //  [4..7]   uint32  height        (always 1 for unorganized cloud)
-    //  [8..11]  uint32  point_step    (bytes per point, 26)
-    //  [12..19] double  stamp_sec     (header stamp as double seconds)
-    //  [20..]   uint8[] point data    (width * point_step bytes)
-
-    const size_t header_bytes = sizeof(uint32_t) * 3 + sizeof(double);
-    const size_t payload_size = header_bytes + ros_msg.data.size();
-
-    if (payload_size <= barq_max_size_) {
-      std::vector<uint8_t> shm_buf(payload_size);
-
-      uint32_t w  = ros_msg.width;
-      uint32_t h  = ros_msg.height;
-      uint32_t ps = ros_msg.point_step;
-      double   ts = ros_msg.header.stamp.sec
-                  + ros_msg.header.stamp.nanosec * 1e-9;
-
-      size_t off = 0;
-
-      std::memcpy(shm_buf.data() + off, &w,  sizeof(w));  off += sizeof(w);
-      std::memcpy(shm_buf.data() + off, &h,  sizeof(h));  off += sizeof(h);
-      std::memcpy(shm_buf.data() + off, &ps, sizeof(ps)); off += sizeof(ps);
-      std::memcpy(shm_buf.data() + off, &ts, sizeof(ts)); off += sizeof(ts);
-      std::memcpy(shm_buf.data() + off, ros_msg.data.data(), ros_msg.data.size());
-
-      int readers = barq_writer_->write(shm_buf.data(), payload_size);
-    } else {
-      std::cout << "Point cloud payload (" << payload_size << " bytes) exceeds BARQ max size (" << barq_max_size_ << " bytes), skipping shared memory publish." << std::endl;
-    }
-  }
-#endif
+  pub_->publish(ros_msg);
 }
 
 /*

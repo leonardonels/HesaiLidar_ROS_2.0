@@ -51,6 +51,7 @@
 #ifdef ENABLE_BARQ
 // BARQ (Burst Access Reader Queue) is a lightweight shared memory library for high-throughput, low-latency data exchange between processes.
 #include "barq/barq.hpp"
+#include "barq/barq_pcl.hpp"
 #endif
 
 class SourceDriver
@@ -74,7 +75,7 @@ protected:
   // Save packets subscribed by 'ros_recv_packet_topic'
   void ReceivePacket(const hesai_ros_driver::msg::UdpFrame::SharedPtr msg);
   // Used to publish point clouds through 'ros_send_point_cloud_topic'
-  void SendPointCloud(const LidarDecodedFrame<LidarPointXYZIRT>& msg);
+  void SendPointCloudWithRos(const LidarDecodedFrame<LidarPointXYZIRT>& msg);
   // Used to publish the original pcake through 'ros_send_packet_topic'
   void SendPacket(const UdpFrame_t&  ros_msg, double timestamp);
 
@@ -88,6 +89,11 @@ protected:
   void SendFiretime(const double *firetime_correction_);
   // Used to publish the imu packet
   void SendImuConfig(const LidarImuData& msg);
+
+#ifdef ENABLE_BARQ
+  std::vector<uint8_t> SerializePointCloudForBarq(const LidarDecodedFrame<LidarPointXYZIRT>& frame);
+  void SendPointCloudWithBarq(const LidarDecodedFrame<LidarPointXYZIRT>& frame);
+#endif
 
   // Convert ptp lock offset, status into ROS message
   hesai_ros_driver::msg::Ptp ToRosMsg(const uint8_t& ptp_lock_offset, const u8Array_t& ptp_status);

@@ -1,4 +1,4 @@
-rviz2: true
+rviz2: false
 lidar:
   - driver:
       use_gpu: true
@@ -87,7 +87,7 @@ lidar:
         # ros_send_firetime_topic: /lidar_firetime
       ros_send_ptp_topic: /lidar_ptp                # Topic used to send PTP lock status, offset through ROS
       send_packet_ros: false                          # true: Send packets through ROS 
-      send_point_cloud_ros: true                      # true: Send point cloud through ROS    
+      send_point_cloud_ros: false                      # true: Send point cloud through ROS    
       send_imu_ros: true                              # true: Send imu through ROS    
 
       # custom_params
@@ -95,7 +95,7 @@ lidar:
       latency_testing: false                            # true: use this for latency testing, point cloud timestamp is the time when the point cloud is published
 
       # BARQ params
-      BARQ_enable: false                             # Enable BARQ
+      BARQ_enable: true                             # Enable BARQ
 
       bubble_filter: true                            # Enable bubble filter
       car_filter_distance: 2.0                        # Car filter distance for bubble filter

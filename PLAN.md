@@ -240,13 +240,13 @@ struct __attribute__((packed)) BARQFrameHeader {
 // ── source_driver_ros2.hpp: add alongside SendPointCloud ──
 
 #ifdef ENABLE_BARQ
-  void SendPointCloudToBarq(const LidarDecodedFrame<LidarPointXYZIRT>& frame);
+  void SendPointCloudWithBarq(const LidarDecodedFrame<LidarPointXYZIRT>& frame);
 #endif
 
 // ── source_driver_ros2.cpp: new free function, parallel to ToRosMsg ──
 
 #ifdef ENABLE_BARQ
-void SourceDriver::SendPointCloudToBarq(const LidarDecodedFrame<LidarPointXYZIRT>& frame)
+void SourceDriver::SendPointCloudWithBarq(const LidarDecodedFrame<LidarPointXYZIRT>& frame)
 {
   if (!barq_enabled_ || !barq_writer_) return;
 
@@ -290,13 +290,13 @@ void SourceDriver::SendPointCloudToBarq(const LidarDecodedFrame<LidarPointXYZIRT
 
 if (driver_param.input_param.send_point_cloud_ros) {
   driver_ptr_->RegRecvCallback([this](const LidarDecodedFrame<LidarPointXYZIRT>& frame) {
-    this->SendPointCloud(frame);
+    this->SendPointCloudWithRos(frame);
   });
 }
 #ifdef ENABLE_BARQ
 if (barq_enabled_) {
   driver_ptr_->RegRecvCallback([this](const LidarDecodedFrame<LidarPointXYZIRT>& frame) {
-    this->SendPointCloudToBarq(frame);
+    this->SendPointCloudWithBarq(frame);
   });
 }
 #endif
