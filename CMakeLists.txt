@@ -3,6 +3,48 @@ cmake_policy(SET CMP0048 NEW)
 project(hesai_ros_driver)
 
 #=======================================
+# Options and configurations
+#=======================================
+option(ENABLE_BARQ "Enable BARQ for high-performance packet processing" OFF)
+
+#=======================================
+# BARQ support
+#=======================================
+if($ENV{ENABLE_BARQ})
+  set(ENABLE_BARQ ON)
+endif()
+
+if(ENABLE_BARQ)
+  find_package(barq QUIET)
+  if (NOT barq_FOUND)
+    message(FATAL_ERROR 
+      "============================================================\n"
+      "ENABLE_BARQ is ON, but the BARQ package was not found.\n"
+      "This package is not avaiable on rosdep or apt.\n"
+      "You must clone and built it manually from:\n"
+      "    cd ~/ros2_ws/src\n"
+      "    git clone https://github.com/leonardonels/barq.git\n"
+      "    cd ~/ros2_ws && colcon build\n"
+      "Then rebuild this package with:\n"
+      "    cd ~/ros2_ws && ENABLE_BARQ=1 colcon build --packages-up-to hesai_ros_driver --cmake-args -DCMAKE_BUILD_TYPE=Release\n"
+      "============================================================\n"
+    )
+  endif()
+  message(
+    "============================================================\n"
+    "-- BARQ is ENABLED\n"
+    "============================================================\n"
+  )
+  add_definitions(-DENABLE_BARQ)
+else()
+  message( 
+    "============================================================\n"
+    "-- BARQ is DISABLED - IF YOU WANT TO ENABLE BARQ, PLEASE SET ENV ENABLE_BARQ=1 BEFORE BUILDING THIS PACKAGE\n"
+    "============================================================\n"
+  )
+endif()
+
+#=======================================
 # Version information
 #=======================================
 set(VERSION_MAJOR 2)
@@ -56,17 +98,8 @@ if (CMAKE_BUILD_TYPE STREQUAL "")
   add_definitions(-O3)
 endif()
 
-if(($ENV{ROS_DISTRO} STREQUAL "kilted"))
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++17")
+set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
-elseif(($ENV{ROS_DISTRO} STREQUAL "jazzy"))
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++17")
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
-elseif($ENV{ROS_DISTRO} STREQUAL "humble")
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++17")
-else()
-add_definitions(-std=c++14)
-endif()
 
 add_compile_options(-Wall)
 
@@ -98,7 +131,6 @@ ament_export_dependencies(rosidl_default_runtime)
 
 #Others#
 find_package(yaml-cpp REQUIRED)
-find_package(barq REQUIRED)
 
 #Include directories#
 include_directories(
@@ -168,6 +200,8 @@ target_include_directories(hesai_ros_driver_node PRIVATE
 #========================
 
 find_package(ament_index_cpp REQUIRED)
+
+if(barq_FOUND)
 ament_target_dependencies(hesai_ros_driver_node
   "ament_index_cpp"
   "rcl_interfaces"
@@ -177,6 +211,17 @@ ament_target_dependencies(hesai_ros_driver_node
   "sensor_msgs"
   "barq"
 )
+else()
+ament_target_dependencies(hesai_ros_driver_node
+  "ament_index_cpp"
+  "rcl_interfaces"
+  "rclcpp"
+  "rcutils"
+  "std_msgs"
+  "sensor_msgs"
+)
+endif()
+
 
 if(($ENV{ROS_DISTRO} STREQUAL "kilted") OR ($ENV{ROS_DISTRO} STREQUAL "jazzy") OR ($ENV{ROS_DISTRO} STREQUAL "humble"))
   rosidl_get_typesupport_target(cpp_typesupport_target "${PROJECT_NAME}" "rosidl_typesupport_cpp")

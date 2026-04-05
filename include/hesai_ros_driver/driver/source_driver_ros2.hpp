@@ -48,8 +48,10 @@
 #include <boost/thread.hpp>
 #include "hesai_ros_driver/driver/source_drive_common.hpp"
 
+#ifdef ENABLE_BARQ
 // BARQ (Burst Access Reader Queue) is a lightweight shared memory library for high-throughput, low-latency data exchange between processes.
 #include "barq/barq.hpp"
+#endif
 
 class SourceDriver
 {
@@ -124,8 +126,10 @@ protected:
   //spin thread while Receive data from ROS topic
   boost::thread* subscription_spin_thread_;
 
+#ifdef ENABLE_BARQ
   // BARQ writer for shared memory publishing of point clouds (optional, alongside ROS2 topics)
   std::unique_ptr<BARQ::Writer> barq_writer_;
   bool barq_enabled_ = false;
   size_t barq_max_size_ = 0;
+#endif
 };

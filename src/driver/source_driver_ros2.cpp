@@ -133,7 +133,7 @@ void SourceDriver::Init(const YAML::Node& config)
     exit(-1);
   }
 
-
+#ifdef ENABLE_BARQ
   if (driver_param.custom_param.BARQ_enable) {
     RCLCPP_INFO(node_ptr_->get_logger(), "BARQ shared memory publishing for point clouds is enabled.");
 
@@ -160,6 +160,7 @@ void SourceDriver::Init(const YAML::Node& config)
   } else {
     RCLCPP_INFO(node_ptr_->get_logger(), "BARQ shared memory publishing for point clouds is disabled.");
   }
+#endif
 }
 
 /*
@@ -192,11 +193,13 @@ void SourceDriver::Stop()
 {
   driver_ptr_->Stop();
 
+#ifdef ENABLE_BARQ
   if (barq_writer_) {
     barq_writer_->destroy();
     barq_writer_.reset();
     barq_enabled_ = false;
   }
+#endif
 }
 
 /*
@@ -232,6 +235,7 @@ void SourceDriver::SendPointCloud(const LidarDecodedFrame<LidarPointXYZIRT>& msg
   }
   if (driver_param.input_param.send_point_cloud_ros) pub_->publish(ros_msg);
 
+#ifdef ENABLE_BARQ
   // Publish via BARQ shared memory if enabled
   if (barq_enabled_ && barq_writer_) {
     // ros_msg.data already contains the packed binary point data
@@ -270,6 +274,7 @@ void SourceDriver::SendPointCloud(const LidarDecodedFrame<LidarPointXYZIRT>& msg
       std::cout << "Point cloud payload (" << payload_size << " bytes) exceeds BARQ max size (" << barq_max_size_ << " bytes), skipping shared memory publish." << std::endl;
     }
   }
+#endif
 }
 
 /*

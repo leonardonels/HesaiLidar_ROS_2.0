@@ -103,8 +103,9 @@ public:
         // custom driver params
         YamlRead<bool>(       config["ros"], "real_time_timestamp",       driver_param.custom_param.real_time_timestamp, false);
         YamlRead<bool>(       config["ros"], "latency_testing",           driver_param.custom_param.latency_testing, false);
+#ifdef ENABLE_BARQ
         YamlRead<bool>(       config["ros"], "BARQ_enable",               driver_param.custom_param.BARQ_enable, false);
-
+#endif
         // car points filter options
         YamlRead<bool>(       config["ros"], "bubble_filter",             driver_param.custom_param.bubble_filter, false);
         YamlRead<float>(      config["ros"], "car_filter_distance",       driver_param.custom_param.car_filter_distance, 0.0);

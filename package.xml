@@ -14,7 +14,7 @@
   <depend>std_msgs</depend>
   <depend>ament_index_cpp</depend>
   <depend>rclcpp_action</depend>
-  <depend>barq</depend>
+  <build_depend condition="$ENABLE_BARQ == 1">barq</build_depend>
 
   <member_of_group>rosidl_interface_packages</member_of_group>
 

@@ -13,7 +13,9 @@ typedef struct CustomParam
 {
   bool real_time_timestamp = false;
   bool latency_testing = false;
+#ifdef ENABLE_BARQ
   bool BARQ_enable = false;
+#endif
   bool bubble_filter = false;
   float car_filter_distance = 0.0;
   bool cube_filter = false;
