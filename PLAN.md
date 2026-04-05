@@ -306,6 +306,32 @@ OT128 -> `LidarDecodedFrame<LidarPointXYZIRT>`                          -> `sens
                                                                         -> `std::vector<uint8_t> shm_buf(payload_size)`
                                                 -> car_filter (cuda?)
 
-OT128 ->CPU (UDP recv) → CPU (ring buffer) -> GPU (decode) -> CPU (frame assembly) -> CPU (filter) -> CPU (share)
-To move from actual bubble/cube filter implementations to cuda i need to move back the filter before the decode process 
-OT128 ->CPU (UDP recv) → CPU (ring buffer) -> GPU (decode) -> GPU (cuda_kernel_filter) -> CPU (frame assembly) -> CPU (share)
+- OT128 ->CPU (UDP recv) → CPU (ring buffer) -> GPU (decode) -> CPU (frame assembly) -> CPU (filter) -> CPU (share)
+> To move from actual bubble/cube filter implementations to cuda i need to move back the filter before the decode process 
+- OT128 ->CPU (UDP recv) → CPU (ring buffer) -> GPU (decode) -> GPU (cuda_kernel_filter) -> CPU (frame assembly) -> CPU (share)
+
+```
+UdpParserGpu/
+├── src/
+│   ├── general_parser_gpu.cu
+│   ├── cuda_filter.cu          ← new file: bubble + cube filter kernel
+│   └── ...
+├── include/
+│   ├── cuda_filter.cuh         ← new header: declares the filter function
+│   ├── udp1_4_parser_gpu.h     ← #include "cuda_filter.cuh", call before cudaMemcpy
+│   ├── udp1_8_parser_gpu.h     ← same
+│   └── ... (7 others)
+cuda_filter.cuh declares one function:
+
+
+void apply_filters_gpu(CudaPointXYZAER* points_cu, uint32_t n, 
+                       const FrameDecodeParam& fParam);
+cuda_filter.cu implements the CUDA kernel.
+
+Each of the 9 headers calls it in the same spot — after the decode kernel, before cudaMemcpy(DeviceToHost):
+
+
+compute_xyz_cuda<<<>>>()       // decode
+apply_filters_gpu(points_cu_)  // filter on GPU  ← one call, same in all 9
+cudaMemcpy(D→H)                // fewer points cross PCIe
+```

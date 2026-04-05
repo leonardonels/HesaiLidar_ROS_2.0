@@ -30,6 +30,7 @@
 
 /*
  * TODO:
+ * - [x] separate barq from ros2
  * - [ ] verify whata ptp pipeline actually does
  * - [ ] apply to the imu the same rotation as the point cloud
  * - [x] verify where the ring option of the pcl is used and maybe lost in the ROS2 pipeline and add it back
@@ -393,8 +394,13 @@ sensor_msgs::msg::PointCloud2 SourceDriver::ToRosMsg(const LidarDecodedFrame<Lid
   sensor_msgs::PointCloud2Iterator<float> iter_intensity_(ros_msg, "intensity");
   sensor_msgs::PointCloud2Iterator<uint16_t> iter_ring_(ros_msg, "ring");
   sensor_msgs::PointCloud2Iterator<double> iter_timestamp_(ros_msg, "timestamp");
+
   for (size_t i = 0; i < frame.points_num; i++)
   {
+    // =========================================================
+    // Filters - infinite points, bubble filter, cube filter
+    // =========================================================
+    
     if (!std::isfinite(frame.points[i].x) || !std::isfinite(frame.points[i].y) || !std::isfinite(frame.points[i].z)){
       n_real_points--;
       continue;
@@ -416,6 +422,10 @@ sensor_msgs::msg::PointCloud2 SourceDriver::ToRosMsg(const LidarDecodedFrame<Lid
         continue;
       }
     }
+
+    // =========================================================
+    // End of filters
+    // =========================================================
 
     LidarPointXYZIRT point = pPoints[i];
     *iter_x_ = point.x;
