@@ -10,6 +10,25 @@ add_compile_options(-Wall)
 # Options and configurations
 #=======================================
 option(ENABLE_BARQ "Enable BARQ for high-performance packet processing" OFF)
+option(ENABLE_VERBOSE "Enable verbose logging for debugging purposes" OFF)
+
+#=======================================
+# Verbose logging
+#=======================================
+if(ENABLE_VERBOSE)
+  add_definitions(-DVERBOSE_LOGGING)
+  message(
+    "============================================================\n"
+    "-- VERBOSE LOGGING is ENABLED\n"
+    "============================================================\n"
+  )
+else()
+  message(
+    "============================================================\n"
+    "-- VERBOSE LOGGING is DISABLED - IF YOU WANT TO ENABLE VERBOSE LOGGING, PLEASE SET -DENABLE_VERBOSE=ON WHEN BUILDING THIS PACKAGE\n"
+    "============================================================\n"
+  )
+endif()
 
 #=======================================
 # BARQ support

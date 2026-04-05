@@ -35,6 +35,16 @@
  * - [x] verify where the ring option of the pcl is used and maybe lost in the ROS2 pipeline and add it back
  *        -> is not, it is the uint16_t sized element.
  * - [ ] write a cuda kernel function to optimize the bubble/cube filtering
+ * - [ ] change the SDK to allow multiple callbacks for the same type of data
+ *          // before
+ *          void RegRecvCallback(const std::function<void(const LidarDecodedFrame<T_Point>&)>& callback) {
+ *            point_cloud_cb_ = callback;
+ *          }
+ *          
+ *          // after
+ *          void RegRecvCallback(const std::function<void(const LidarDecodedFrame<T_Point>&)>& callback) {
+ *            point_cloud_cbs_.push_back(callback);
+ *          }
  * - [ ] parametrize the baqr "topic name"
  */
 
@@ -107,11 +117,6 @@ void SourceDriver::Init(const YAML::Node& config)
   }
   driver_ptr_.reset(new HesaiLidarSdk<LidarPointXYZIRT>());
   driver_param.decoder_param.enable_parser_thread = true;
-  if (driver_param.input_param.send_point_cloud_ros) {
-    driver_ptr_->RegRecvCallback([this](const LidarDecodedFrame<LidarPointXYZIRT>& frame) {
-      this->SendPointCloudWithRos(frame);
-    });
-  }
 #ifdef ENABLE_BARQ
   if (driver_param.custom_param.BARQ_enable) {
     const size_t kMaxPoints = 300000;
@@ -119,9 +124,6 @@ void SourceDriver::Init(const YAML::Node& config)
     barq_writer_   = std::make_unique<BARQ::Writer>("/hesai_pointcloud", barq_max_size_, false);
     if (barq_writer_->init()) {
       barq_enabled_ = true;
-      driver_ptr_->RegRecvCallback([this](const LidarDecodedFrame<LidarPointXYZIRT>& frame) {
-        this->SendPointCloudWithBarq(frame);
-      });
       RCLCPP_INFO(node_ptr_->get_logger(), "BARQ writer initialized (%zu bytes).", barq_max_size_);
     } else {
       RCLCPP_ERROR(node_ptr_->get_logger(), "Failed to initialize BARQ writer.");
@@ -129,6 +131,16 @@ void SourceDriver::Init(const YAML::Node& config)
     }
   }
 #endif
+  if (driver_param.input_param.send_point_cloud_ros || barq_enabled_) {
+    driver_ptr_->RegRecvCallback([this](const LidarDecodedFrame<LidarPointXYZIRT>& frame) {
+      if (driver_param.input_param.send_point_cloud_ros)
+        this->SendPointCloudWithRos(frame);
+#ifdef ENABLE_BARQ
+      if (barq_enabled_)
+        this->SendPointCloudWithBarq(frame);
+#endif
+    });
+  }
   if (driver_param.input_param.send_imu_ros) {
     driver_ptr_->RegRecvCallback(std::bind(&SourceDriver::SendImuConfig, this, std::placeholders::_1));
   }
@@ -360,8 +372,9 @@ sensor_msgs::msg::PointCloud2 SourceDriver::ToRosMsg(const LidarDecodedFrame<Lid
   ros_msg.fields.clear();
   ros_msg.fields.reserve(fields);
 
+#ifdef VERBOSE_LOGGING
   RCLCPP_INFO(node_ptr_->get_logger(), "Converting to ROS PointCloud2 message with %u points", frame.points_num);
-
+#endif
   int offset = 0;
   offset = addPointField(ros_msg, "x", 1, sensor_msgs::msg::PointField::FLOAT32, offset);
   offset = addPointField(ros_msg, "y", 1, sensor_msgs::msg::PointField::FLOAT32, offset);
