@@ -32,7 +32,8 @@
  * TODO:
  * - [ ] verify whata ptp pipeline actually does
  * - [ ] apply to the imu the same rotation as the point cloud
- * - [ ] verify where the ring option of the pcl is used and maybe lost in the ROS2 pipeline and add it back
+ * - [x] verify where the ring option of the pcl is used and maybe lost in the ROS2 pipeline and add it back
+ *        -> is not, it is the uint16_t sized element.
  * - [ ] write a cuda kernel function to optimize the bubble/cube filtering
  */
 
