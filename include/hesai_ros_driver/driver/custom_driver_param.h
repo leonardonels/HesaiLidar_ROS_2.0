@@ -15,6 +15,7 @@ typedef struct CustomParam
   bool latency_testing = false;
 #ifdef ENABLE_BARQ
   bool BARQ_enable = false;
+  std::string BARQ_topic = "/lidar_points";
 #endif
   bool bubble_filter = false;
   float car_filter_distance_sq = 0.0;

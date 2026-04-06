@@ -31,7 +31,7 @@
 /*
  * TODO:
  * - [ ] verify whata ptp pipeline actually does
- * - [ ] apply to the imu the same rotation as the point cloud
+ * - [x] apply to the imu the same rotation as the point cloud
  * - [x] separate barq from ros2
  * - [x] verify where the ring option of the pcl is used and maybe lost in the ROS2 pipeline and add it back
  *        -> is not, it is the uint16_t sized element.
@@ -518,12 +518,35 @@ sensor_msgs::msg::Imu SourceDriver::ToRosMsg(const LidarImuData &imu_config_)
     printf("does not support timestamps greater than 19 January 2038 03:14:07 (now %lf)\n", imu_config_.timestamp);
   }
   ros_msg.header.frame_id = frame_id_;
-  ros_msg.linear_acceleration.x = From_g_To_ms2(imu_config_.imu_accel_x);
-  ros_msg.linear_acceleration.y = From_g_To_ms2(imu_config_.imu_accel_y);
-  ros_msg.linear_acceleration.z = From_g_To_ms2(imu_config_.imu_accel_z);
-  ros_msg.angular_velocity.x = From_degs_To_rads(imu_config_.imu_ang_vel_x);
-  ros_msg.angular_velocity.y = From_degs_To_rads(imu_config_.imu_ang_vel_y);
-  ros_msg.angular_velocity.z = From_degs_To_rads(imu_config_.imu_ang_vel_z);
+  double ax = From_g_To_ms2(imu_config_.imu_accel_x);
+  double ay = From_g_To_ms2(imu_config_.imu_accel_y);
+  double az = From_g_To_ms2(imu_config_.imu_accel_z);
+  double gx = From_degs_To_rads(imu_config_.imu_ang_vel_x);
+  double gy = From_degs_To_rads(imu_config_.imu_ang_vel_y);
+  double gz = From_degs_To_rads(imu_config_.imu_ang_vel_z);
+
+  if (driver_param.decoder_param.transform_param.use_flag) {
+    const auto& t = driver_param.decoder_param.transform_param;
+    float cosa = std::cos(t.roll),  sina = std::sin(t.roll);
+    float cosb = std::cos(t.pitch), sinb = std::sin(t.pitch);
+    float cosc = std::cos(t.yaw),   sinc = std::sin(t.yaw);
+
+    auto rotate = [&](double x, double y, double z, double &ox, double &oy, double &oz) {
+      ox = cosb*cosc*x + (sina*sinb*cosc - cosa*sinc)*y + (sina*sinc + cosa*sinb*cosc)*z;
+      oy = cosb*sinc*x + (cosa*cosc + sina*sinb*sinc)*y + (cosa*sinb*sinc - sina*cosc)*z;
+      oz = -sinb*x + sina*cosb*y + cosa*cosb*z;
+    };
+
+    rotate(ax, ay, az, ax, ay, az);
+    rotate(gx, gy, gz, gx, gy, gz);
+  }
+
+  ros_msg.linear_acceleration.x = ax;
+  ros_msg.linear_acceleration.y = ay;
+  ros_msg.linear_acceleration.z = az;
+  ros_msg.angular_velocity.x = gx;
+  ros_msg.angular_velocity.y = gy;
+  ros_msg.angular_velocity.z = gz;
   return ros_msg;
 }
 

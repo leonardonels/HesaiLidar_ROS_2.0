@@ -136,6 +136,7 @@ protected:
   // BARQ writer for shared memory publishing of point clouds (optional, alongside ROS2 topics)
   std::unique_ptr<BARQ::Writer> barq_writer_;
   bool barq_enabled_ = false;
+  std::string barq_topic_;
   size_t barq_max_size_ = 0;
 #endif
 };
