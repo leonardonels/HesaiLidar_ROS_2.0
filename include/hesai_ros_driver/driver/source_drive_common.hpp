@@ -105,14 +105,17 @@ public:
         YamlRead<bool>(       config["ros"], "latency_testing",           driver_param.custom_param.latency_testing, false);
 #ifdef ENABLE_BARQ
         YamlRead<bool>(       config["ros"], "BARQ_enable",               driver_param.custom_param.BARQ_enable, false);
+        YamlRead<std::string>(config["ros"], "BARQ_topic",                driver_param.custom_param.BARQ_topic, "/lidar_points");
 #endif
-        // car points filter options
-        YamlRead<bool>(       config["ros"], "bubble_filter",             driver_param.custom_param.bubble_filter, false);
-        YamlRead<float>(      config["ros"], "car_filter_distance",       driver_param.custom_param.car_filter_distance, 0.0);
-        YamlRead<bool>(       config["ros"], "cube_filter",               driver_param.custom_param.cube_filter, false);
-        YamlRead<float>(      config["ros"], "car_filter_distance_x",     driver_param.custom_param.car_filter_distance_x, 0.0);
-        YamlRead<float>(      config["ros"], "car_filter_distance_y",     driver_param.custom_param.car_filter_distance_y, 0.0);
-        YamlRead<float>(      config["ros"], "car_filter_distance_z",     driver_param.custom_param.car_filter_distance_z, 0.0);
+        // min distance filter (bubble filter)
+        {
+          bool bubble_filter = false;
+          float car_filter_distance_sq = 0.0f;
+          YamlRead<bool>(       config["ros"], "bubble_filter",           bubble_filter, false);
+          YamlRead<float>(      config["ros"], "car_filter_distance_sq",     car_filter_distance_sq, 0.0f);
+          driver_param.decoder_param.min_distance_filter_enabled = bubble_filter;
+          driver_param.decoder_param.min_distance_sq = car_filter_distance_sq * car_filter_distance_sq;
+        }
         return true;
     }
 

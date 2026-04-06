@@ -317,11 +317,11 @@ UdpParserGpu/
 │   ├── cuda_filter.cu          ← new file: bubble + cube filter kernel
 │   └── ...
 ├── include/
-│   ├── cuda_filter.cuh         ← new header: declares the filter function
-│   ├── udp1_4_parser_gpu.h     ← #include "cuda_filter.cuh", call before cudaMemcpy
+│   ├── cuda_filter.h         ← new header: declares the filter function
+│   ├── udp1_4_parser_gpu.h     ← #include "cuda_filter.h", call before cudaMemcpy
 │   ├── udp1_8_parser_gpu.h     ← same
 │   └── ... (7 others)
-cuda_filter.cuh declares one function:
+cuda_filter.h declares one function:
 
 
 void apply_filters_gpu(CudaPointXYZAER* points_cu, uint32_t n, 

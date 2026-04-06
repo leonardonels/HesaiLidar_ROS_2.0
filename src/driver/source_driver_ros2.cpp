@@ -30,12 +30,12 @@
 
 /*
  * TODO:
- * - [x] separate barq from ros2
  * - [ ] verify whata ptp pipeline actually does
  * - [ ] apply to the imu the same rotation as the point cloud
+ * - [x] separate barq from ros2
  * - [x] verify where the ring option of the pcl is used and maybe lost in the ROS2 pipeline and add it back
  *        -> is not, it is the uint16_t sized element.
- * - [ ] write a cuda kernel function to optimize the bubble/cube filtering
+ * - [x] write a cuda kernel function to optimize the bubble/cube filtering
  * - [ ] change the SDK to allow multiple callbacks for the same type of data
  *          // before
  *          void RegRecvCallback(const std::function<void(const LidarDecodedFrame<T_Point>&)>& callback) {
@@ -46,7 +46,7 @@
  *          void RegRecvCallback(const std::function<void(const LidarDecodedFrame<T_Point>&)>& callback) {
  *            point_cloud_cbs_.push_back(callback);
  *          }
- * - [ ] parametrize the baqr "topic name"
+ * - [x] parametrize the baqr "topic name"
  */
 
 #include "hesai_ros_driver/driver/source_driver_ros2.hpp"
@@ -122,7 +122,7 @@ void SourceDriver::Init(const YAML::Node& config)
   if (driver_param.custom_param.BARQ_enable) {
     const size_t kMaxPoints = 300000;
     barq_max_size_ = sizeof(BARQFrameHeader) + kMaxPoints * sizeof(BARQPoint) + 512;
-    barq_writer_   = std::make_unique<BARQ::Writer>("/hesai_pointcloud", barq_max_size_, false);
+    barq_writer_   = std::make_unique<BARQ::Writer>(driver_param.custom_param.BARQ_topic, barq_max_size_, false);
     if (barq_writer_->init()) {
       barq_enabled_ = true;
       RCLCPP_INFO(node_ptr_->get_logger(), "BARQ writer initialized (%zu bytes).", barq_max_size_);
@@ -397,36 +397,6 @@ sensor_msgs::msg::PointCloud2 SourceDriver::ToRosMsg(const LidarDecodedFrame<Lid
 
   for (size_t i = 0; i < frame.points_num; i++)
   {
-    // =========================================================
-    // Filters - infinite points, bubble filter, cube filter
-    // =========================================================
-    
-    if (!std::isfinite(frame.points[i].x) || !std::isfinite(frame.points[i].y) || !std::isfinite(frame.points[i].z)){
-      n_real_points--;
-      continue;
-    }
-
-    // filter out car body points if needed: bubble filter
-    if(driver_param.custom_param.bubble_filter){
-      double dist = std::sqrt((double)frame.points[i].x * frame.points[i].x + (double)frame.points[i].y * frame.points[i].y + (double)frame.points[i].z * frame.points[i].z);
-      if (dist <= driver_param.custom_param.car_filter_distance) {
-        n_real_points--;
-        continue;
-      }
-    }
-
-    // filter out car body points if needed: cube filter
-    if (driver_param.custom_param.cube_filter) {
-      if (std::abs(frame.points[i].x) <= driver_param.custom_param.car_filter_distance_x && std::abs(frame.points[i].y) <= driver_param.custom_param.car_filter_distance_y && std::abs(frame.points[i].z) <= driver_param.custom_param.car_filter_distance_z) {
-        n_real_points--;
-        continue;
-      }
-    }
-
-    // =========================================================
-    // End of filters
-    // =========================================================
-
     LidarPointXYZIRT point = pPoints[i];
     *iter_x_ = point.x;
     *iter_y_ = point.y;

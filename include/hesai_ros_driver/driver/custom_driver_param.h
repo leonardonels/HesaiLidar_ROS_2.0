@@ -17,11 +17,7 @@ typedef struct CustomParam
   bool BARQ_enable = false;
 #endif
   bool bubble_filter = false;
-  float car_filter_distance = 0.0;
-  bool cube_filter = false;
-  float car_filter_distance_x = 0.0;
-  float car_filter_distance_y = 0.0;
-  float car_filter_distance_z = 0.0;
+  float car_filter_distance_sq = 0.0;
 } CustomParam;
 
 // New type that extends the SDK DriverParam with custom fields

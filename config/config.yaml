@@ -96,10 +96,7 @@ lidar:
 
       # BARQ params
       BARQ_enable: true                             # Enable BARQ
+      BARQ_topic: "/lidar_points"                   
 
       bubble_filter: true                            # Enable bubble filter
-      car_filter_distance: 2.0                        # Car filter distance for bubble filter
-      cube_filter: false                              # Enable cube filter
-      car_filter_distance_x: 0.0                      # Car filter distance in x direction for cube filter
-      car_filter_distance_y: 0.0                      # Car filter distance in y direction for cube filter
-      car_filter_distance_z: 0.0                      # Car filter distance in z direction for cube filter
+      car_filter_distance_sq: 4.0                        # Car filter distance for bubble filter
