@@ -59,7 +59,7 @@ lidar:
       z: 1.1
       roll: 0.087
       pitch: 0
-      yaw: 0
+      yaw: 1.57
       # fov config, [fov_start, fov_end] range [1, 359], [-1, -1]means use default
       fov_start: -1
       fov_end:  -1
