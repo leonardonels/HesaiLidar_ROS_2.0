@@ -76,7 +76,10 @@ void SourceDriver::Init(const YAML::Node& config)
   }
 
   node_ptr_.reset(new rclcpp::Node("hesai_ros_driver_node"));
-  auto qos = rclcpp::QoS(rclcpp::KeepLast(10), rmw_qos_profile_sensor_data);
+  auto qos = rclcpp::QoS(rclcpp::SensorDataQoS());
+  // depth is already 5 from the profile, override if needed:
+  // qos.keep_last(10);
+
   if (driver_param.input_param.send_point_cloud_ros) {
     pub_ = node_ptr_->create_publisher<sensor_msgs::msg::PointCloud2>(driver_param.input_param.ros_send_point_topic, qos);
   }
@@ -279,7 +282,7 @@ void SourceDriver::SendPointCloudWithBarq(const LidarDecodedFrame<LidarPointXYZI
 void SourceDriver::SendPointCloudWithRos(const LidarDecodedFrame<LidarPointXYZIRT>& msg)
 {
   sensor_msgs::msg::PointCloud2 ros_msg = ToRosMsg(msg, frame_id_);
-  // For latency testing, we set the timestamp to the current time when the point cloud is received
+  // For latency testing only, we set the timestamp to the current time when the point cloud is received
   if (driver_param.custom_param.latency_testing) {
     auto now = rclcpp::Clock(RCL_ROS_TIME).now();
     ros_msg.header.stamp = now;
