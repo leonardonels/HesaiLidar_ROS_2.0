@@ -116,6 +116,38 @@ public:
           driver_param.decoder_param.min_distance_filter_enabled = bubble_filter;
           driver_param.decoder_param.min_distance_sq = car_filter_distance_sq * car_filter_distance_sq;
         }
+
+        // temperature publishing (OT128). Lives under ros: -> temperature:.
+        // A missing/empty node leaves the feature disabled (defaults above).
+        {
+          YAML::Node temp_node = config["ros"]["temperature"];
+          if (temp_node && temp_node.Type() != YAML::NodeType::Null) {
+            auto& tp = driver_param.custom_param;
+            YamlRead<bool>(       temp_node, "enable",               tp.temp_enable, false);
+            YamlRead<std::string>(temp_node, "source",               tp.temp_source, "auto");
+            YamlRead<std::string>(temp_node, "topic",                tp.temp_topic, "/lidar/temperature");
+            YamlRead<bool>(       temp_node, "publish_sensor_msgs",  tp.temp_publish_sensor_msgs, false);
+            YamlRead<std::string>(temp_node, "sensor_msgs_prefix",   tp.temp_sensor_msgs_prefix, "/lidar/temperature/");
+            YamlRead<double>(     temp_node, "ptc_poll_period_s",    tp.temp_ptc_poll_period_s, 1.0);
+            YamlRead<double>(     temp_node, "warn_c",               tp.temp_warn_c, 75.0);
+            YamlRead<double>(     temp_node, "error_c",              tp.temp_error_c, 90.0);
+            YamlRead<bool>(       temp_node, "include_imu",          tp.temp_include_imu, true);
+
+            // YamlRead handles only scalars, so iterate the map node manually.
+            YAML::Node id_map = temp_node["udp_status_id_map"];
+            if (id_map && id_map.IsMap()) {
+              for (auto it = id_map.begin(); it != id_map.end(); ++it) {
+                int id = it->first.as<int>();
+                const YAML::Node& entry = it->second;
+                hesai::lidar::TempSensorEntry e;
+                e.label  = entry["label"]  ? entry["label"].as<std::string>()  : ("sts_" + std::to_string(id));
+                e.scale  = entry["scale"]  ? entry["scale"].as<double>()       : 1.0;
+                e.offset = entry["offset"] ? entry["offset"].as<double>()      : 0.0;
+                tp.udp_status_id_map[static_cast<uint8_t>(id)] = e;
+              }
+            }
+          }
+        }
         return true;
     }
 

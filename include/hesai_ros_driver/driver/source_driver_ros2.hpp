@@ -33,6 +33,9 @@
 #include <sensor_msgs/point_cloud2_iterator.hpp>
 #include <std_msgs/msg/u_int8_multi_array.hpp>
 #include <sensor_msgs/msg/imu.hpp>
+#include <sensor_msgs/msg/temperature.hpp>
+#include <diagnostic_msgs/msg/diagnostic_array.hpp>
+#include <map>
 #include <sstream>
 #include <hesai_ros_driver/msg/udp_frame.hpp>
 #include <hesai_ros_driver/msg/udp_packet.hpp>
@@ -90,6 +93,16 @@ protected:
   // Used to publish the imu packet
   void SendImuConfig(const LidarImuData& msg);
 
+  // --- OT128 temperature publishing ------------------------------------------
+  // PTC path: receives a parsed LidarStatus (8 board/laser temps) and publishes.
+  void OnLidarStatus(const hesai::lidar::LidarStatus& status);
+  // udp_tail path: reads temperatures from the raw UDP packet tail of a frame
+  // (rotating status ID slots + optional IMU temp) for sources with no live PTC.
+  void ExtractTailTemps(const UdpFrame_t& frame, double timestamp);
+  // Shared publisher: builds the DiagnosticArray (+ optional per-sensor
+  // Temperature msgs) and computes OK/WARN/ERROR from the configured thresholds.
+  void PublishTemps(const std::map<std::string, double>& temps, const rclcpp::Time& stamp);
+
 #ifdef ENABLE_BARQ
   std::vector<uint8_t> SerializePointCloudForBarq(const LidarDecodedFrame<LidarPointXYZIRT>& frame);
   void SendPointCloudWithBarq(const LidarDecodedFrame<LidarPointXYZIRT>& frame);
@@ -128,6 +141,17 @@ protected:
   rclcpp::Publisher<hesai_ros_driver::msg::LossPacket>::SharedPtr loss_pub_;
   rclcpp::Publisher<hesai_ros_driver::msg::Ptp>::SharedPtr ptp_pub_;
   rclcpp::Publisher<sensor_msgs::msg::Imu>::SharedPtr imu_pub_;
+
+  // Temperature publishers + state. temp_diag_pub_ is the primary aggregated
+  // output; temp_sensor_pubs_ holds one optional sensor_msgs/Temperature pub per
+  // label. temp_cache_ keeps the latest value per label because udp_tail status
+  // fields rotate across frames (only a few IDs appear in each packet).
+  rclcpp::Publisher<diagnostic_msgs::msg::DiagnosticArray>::SharedPtr temp_diag_pub_;
+  std::map<std::string, rclcpp::Publisher<sensor_msgs::msg::Temperature>::SharedPtr> temp_sensor_pubs_;
+  std::map<std::string, double> temp_cache_;
+  // Resolved at Init: true => publish, "ptc" or "udp_tail" effective source.
+  bool temp_enabled_ = false;
+  std::string temp_effective_source_;
 
   //spin thread while Receive data from ROS topic
   boost::thread* subscription_spin_thread_;

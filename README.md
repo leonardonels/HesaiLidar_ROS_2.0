@@ -154,6 +154,19 @@ lidar:
       send_packet_ros: false                          # true: Send packets through ROS 
       send_point_cloud_ros: true                      # true: Send point cloud through ROS    
       send_imu_ros: true                              # true: Send imu through ROS    
+
+      # OT128 temperature publishing (see "LiDAR temperature publishing" below)
+      temperature:
+        enable: false                                # Master switch (off by default)
+        source: auto                                 # auto | ptc | udp_tail
+        topic: /lidar/temperature                    # diagnostic_msgs/DiagnosticArray topic
+        publish_sensor_msgs: false                   # Also publish one sensor_msgs/Temperature per sensor
+        sensor_msgs_prefix: /lidar/temperature/      # Topic prefix for the per-sensor messages
+        ptc_poll_period_s: 1.0                        # PTC poll interval (seconds), ptc source only
+        warn_c: 75.0                                 # Hottest-sensor threshold for DiagnosticStatus WARN
+        error_c: 90.0                                # Hottest-sensor threshold for DiagnosticStatus ERROR
+        include_imu: true                            # Include IMU temperature (udp_tail source)
+        udp_status_id_map: {}                        # Maps UDP-tail status IDs to sensors (fill from OT128 manual)
 ```
 
 
@@ -184,6 +197,56 @@ In the configuration file, set `source_type` to `2`, then configure the paramete
 ### Parsing serial data
 
 In the configuration file, set `source_type` to `4`, then configure the parameters under `serial_type`. Generally, you need to configure `rs485_com` and `rs232_com`. It is recommended to configure `correction_file_path` (required if `rs232_com` is not used). For other parameters, please refer to the parameter introduction section in the SDK README. Then run start.launch.
+
+### LiDAR temperature publishing
+
+This fork can publish OT128 board/IMU temperatures to ROS 2. It is configured by the
+`temperature:` block under `ros:` and is **disabled by default** (`enable: false`).
+
+The data source is auto-selected by `source: auto`:
+
+- **`ptc`** — used for a live LiDAR (`source_type: 1` / `5`). Temperatures are polled
+  over the PTC command `GetLidarStatus (0x09)` on port `9347`, every
+  `ptc_poll_period_s` seconds. Requires `use_ptc_connected: true`.
+- **`udp_tail`** — used for pcap / rosbag replay, where there is no live PTC socket.
+  Temperatures are read from the UDP packet tail: the rotating status ID/data slots
+  (mapped to named sensors via `udp_status_id_map`) plus the optional IMU temperature
+  (`include_imu`).
+
+You can also force a source with `source: ptc` or `source: udp_tail`. Forcing `ptc` on a
+source without a PTC connection (e.g. a pcap) logs a warning and disables the feature
+rather than crashing.
+
+**Topics**
+
+- Primary: one `diagnostic_msgs/DiagnosticArray` on `topic` (default `/lidar/temperature`),
+  with one `KeyValue` per sensor. The `DiagnosticStatus` level is `OK` / `WARN` / `ERROR`
+  computed from the hottest sensor against `warn_c` / `error_c`.
+- Optional: set `publish_sensor_msgs: true` to also publish one `sensor_msgs/Temperature`
+  per sensor under `sensor_msgs_prefix` (e.g. `/lidar/temperature/imu`).
+
+Inspect with:
+
+    ros2 topic echo /lidar/temperature
+
+**`udp_status_id_map`** maps each UDP-tail status ID to a sensor; it is empty by default,
+so unknown IDs publish nothing (fail-safe). Fill it from the OT128 manual §3.1.2.5; each
+entry converts the raw 16-bit field to °C as `value = raw * scale + offset`:
+
+```yaml
+      temperature:
+        enable: true
+        udp_status_id_map:
+          1: { label: bottom_board_t1, scale: 0.01, offset: 0.0 }
+          2: { label: top_board_t1,    scale: 0.01, offset: 0.0 }
+```
+
+> ⚠️ **Caveat:** the PTC `0x09` response layout used by the `ptc` path (49 bytes, 8 ×
+> `uint32` temperatures in 0.01 °C, with the sensor labels) is **XT32M1X-derived**
+> (`XT32M1X_TCP_API.pdf`) and is **not guaranteed for the OT128**. The parser validates
+> the response size defensively and skips short responses, but before trusting the
+> *values* on a live OT128 you should dump the raw `0x09` payload and re-verify the byte
+> offsets / sensor count / labels against the OT128 PTC/TCP API.
 
 ### Realize multi lidar fusion
 

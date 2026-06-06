@@ -130,6 +130,7 @@ include_directories(${rclcpp_INCLUDE_DIRS})
 
 find_package(ament_cmake REQUIRED)
 find_package(sensor_msgs REQUIRED)
+find_package(diagnostic_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(rclcpp_action REQUIRED)
 find_package(rosidl_typesupport_c REQUIRED)
@@ -226,6 +227,7 @@ ament_target_dependencies(hesai_ros_driver_node
   "rcutils"
   "std_msgs"
   "sensor_msgs"
+  "diagnostic_msgs"
   "barq"
 )
 else()
@@ -236,6 +238,7 @@ ament_target_dependencies(hesai_ros_driver_node
   "rcutils"
   "std_msgs"
   "sensor_msgs"
+  "diagnostic_msgs"
 )
 endif()
 

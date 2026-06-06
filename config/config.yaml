@@ -2,7 +2,7 @@ rviz2: false
 lidar:
   - driver:
       use_gpu: true
-      source_type: 2                                  # The type of data source, 1: real-time lidar connection, 2: pcap, 3: packet rosbag, 4: serial    
+      source_type: 1                                  # The type of data source, 1: real-time lidar connection, 2: pcap, 3: packet rosbag, 4: serial    
       # Depending on the type of source_type, fill in the corresponding configuration block (lidar_udp_type, pcap_type, serial_type)
       lidar_udp_type:
         device_ip_address: 192.168.1.201              # host_ip_address. If empty(""), the source ip of the udp point cloud is used
@@ -30,9 +30,9 @@ lidar:
         caFile: ""                                    # Represents the path of the CA certificate 
 
       pcap_type:
-        pcap_path: "/home/orin/rosbags/test_26_03_31/26_03_31_19_47_tcpdump.pcap"                         # The path of pcap file
-        correction_file_path: "/home/orin/ros2_ws/src/HesaiLidar_ROS_2.0/src/driver/HesaiLidar_SDK_2.0/correction/angle_correction/OT128_Angle Correction File.csv"   # The path of correction file
-        firetimes_path: "/home/orin/ros2_ws/src/HesaiLidar_ROS_2.0/src/driver/HesaiLidar_SDK_2.0/correction/firetime_correction/OT128_Firetime Correction File.csv"           # The path of firetimes file
+        pcap_path: "/home/leo/Downloads/tcpdump.pcap__1.pcap"                         # The path of pcap file
+        correction_file_path: "/home/leo/ros2_sim/src/HesaiLidar_ROS_2.0/src/driver/HesaiLidar_SDK_2.0/correction/angle_correction/OT128_Angle Correction File.csv"   # The path of correction file
+        firetimes_path: "/home/leo/ros2_sim/src/HesaiLidar_ROS_2.0/src/driver/HesaiLidar_SDK_2.0/correction/firetime_correction/OT128_Firetime Correction File.csv"           # The path of firetimes file
 
         pcap_play_synchronization: true                     # pcap play rate synchronize with the host time
         pcap_play_in_loop: true
@@ -78,7 +78,7 @@ lidar:
     ros:
       ros_frame_id: hesai_lidar                       # Frame id of packet message and point cloud message
         # ros_recv_packet_topic: /lidar_packets           # Topic used to receive lidar packets from rosbag
-        # ros_send_packet_topic: /lidar_packets           # Topic used to send lidar raw packets through ROS
+      ros_send_packet_topic: /lidar_packets           # Topic used to send lidar raw packets through ROS
       ros_send_point_cloud_topic: /lidar_points      # Topic used to send point cloud through ROS
       ros_send_imu_topic: /lidar_imu                  # Topic used to send lidar imu message
         # ros_send_packet_loss_topic: /lidar_packets_loss # Topic used to monitor packets loss condition through ROS
@@ -100,3 +100,24 @@ lidar:
 
       bubble_filter: true                            # Enable bubble filter
       car_filter_distance_sq: 4.0                        # Car filter distance for bubble filter
+
+      # OT128 temperature publishing.
+      # Publishes board/IMU temperatures as diagnostic_msgs/DiagnosticArray (and
+      # optional sensor_msgs/Temperature). Source is auto-selected: PTC (command
+      # 0x09) for a live lidar, the UDP packet tail for pcap/replay.
+      temperature:
+        enable: true                                # Master switch (off by default)
+        source: auto                                 # auto | ptc | udp_tail
+        topic: /lidar_temp                    # DiagnosticArray topic
+        publish_sensor_msgs: false                   # Also publish one sensor_msgs/Temperature per sensor
+        sensor_msgs_prefix: /lidar_stats/      # Topic prefix for the per-sensor messages
+        ptc_poll_period_s: 1.0                        # PTC poll interval (seconds), ptc source only
+        warn_c: 60.0                                 # Hottest-sensor threshold for DiagnosticStatus WARN
+        error_c: 75.0                                # Hottest-sensor threshold for DiagnosticStatus ERROR
+        include_imu: true                            # Include IMU temperature (udp_tail source)
+        # udp_tail source only: maps rotating UDP-tail status IDs to named sensors.
+        # Empty by default => unknown IDs publish nothing (fail-safe). Fill from
+        # the OT128 manual section 3.1.2.5; value_celsius = raw * scale + offset.
+        udp_status_id_map: {}
+        #   1: { label: bottom_board_t1, scale: 0.01, offset: 0.0 }
+        #   2: { label: top_board_t1,    scale: 0.01, offset: 0.0 }

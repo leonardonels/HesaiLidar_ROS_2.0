@@ -51,6 +51,9 @@
 
 #include "hesai_ros_driver/driver/source_driver_ros2.hpp"
 
+#include <iomanip>
+#include <limits>
+
 /*
  * Initializes the Hesai LiDAR driver from a YAML configuration node.
  *
@@ -163,6 +166,56 @@ void SourceDriver::Init(const YAML::Node& config)
       driver_ptr_->RegRecvCallback(std::bind(&SourceDriver::SendPTP, this, std::placeholders::_1, std::placeholders::_2));
     }
   }
+
+  // --- OT128 temperature publishing ------------------------------------------
+  // Auto-selects PTC for live sources and the UDP packet tail for pcap/replay,
+  // with a manual override. A forced-source mismatch (e.g. ptc on pcap) disables
+  // the feature with a warning rather than null-deref'ing the absent PTC socket.
+  if (driver_param.custom_param.temp_enable) {
+    const auto src = driver_param.input_param.source_type;
+    const bool is_live = (src == DATA_FROM_LIDAR || src == DATA_FROM_LIDAR_TCP);
+    std::string eff = driver_param.custom_param.temp_source;
+    if (eff == "auto") {
+      eff = is_live ? "ptc" : "udp_tail";
+    }
+
+    bool ok = true;
+    if (eff == "ptc" && !is_live) {
+      RCLCPP_WARN(node_ptr_->get_logger(),
+        "temperature.source=ptc but data source is not a live lidar (no PTC socket); disabling temperature feature.");
+      ok = false;
+    } else if (eff != "ptc" && eff != "udp_tail") {
+      RCLCPP_WARN(node_ptr_->get_logger(),
+        "temperature.source='%s' is invalid (expected auto|ptc|udp_tail); disabling temperature feature.", eff.c_str());
+      ok = false;
+    }
+
+    if (ok) {
+      temp_enabled_ = true;
+      temp_effective_source_ = eff;
+      temp_diag_pub_ = node_ptr_->create_publisher<diagnostic_msgs::msg::DiagnosticArray>(
+          driver_param.custom_param.temp_topic, qos);
+      if (eff == "ptc") {
+        driver_ptr_->SetStatusPollPeriod(driver_param.custom_param.temp_ptc_poll_period_s);
+        driver_ptr_->RegRecvCallback(std::function<void(const LidarStatus&)>(
+            std::bind(&SourceDriver::OnLidarStatus, this, std::placeholders::_1)));
+      } else {  // udp_tail
+        // This reuses the same (UdpFrame_t, double) callback slot as SendPacket,
+        // so fold both in if packet publishing is also enabled (otherwise the
+        // later registration would silently clobber the earlier one).
+        const bool also_send_packet = driver_param.input_param.send_packet_ros;
+        driver_ptr_->RegRecvCallback(std::function<void(const UdpFrame_t&, double)>(
+            [this, also_send_packet](const UdpFrame_t& f, double ts) {
+              if (also_send_packet) this->SendPacket(f, ts);
+              this->ExtractTailTemps(f, ts);
+            }));
+      }
+      RCLCPP_INFO(node_ptr_->get_logger(),
+        "Temperature publishing enabled (source=%s, topic=%s).",
+        eff.c_str(), driver_param.custom_param.temp_topic.c_str());
+    }
+  }
+
   if (!driver_ptr_->Init(driver_param))
   {
     std::cout << "Driver Initialize Error...." << std::endl;
@@ -348,6 +401,172 @@ void SourceDriver::SendFiretime(const double *firetime_correction_)
 void SourceDriver::SendImuConfig(const LidarImuData& msg)
 {
   imu_pub_->publish(ToRosMsg(msg));
+}
+
+/*
+ * PTC temperature path. Receives a parsed LidarStatus (polled over PTC 0x09 on
+ * a wall-clock interval) and publishes its 8 board/laser temperatures.
+ *
+ * NOTE: the 8-sensor / 0.01 C layout and the labels below are XT32M1X-derived
+ * (XT32M1X_TCP_API.pdf) and are NOT guaranteed for the OT128 -- verify against
+ * the OT128 PTC/TCP API before trusting the values (see LidarStatus in the SDK).
+ */
+void SourceDriver::OnLidarStatus(const hesai::lidar::LidarStatus& status)
+{
+  if (!temp_enabled_ || temp_diag_pub_ == nullptr || !status.valid) {
+    return;
+  }
+  static const char* kLabels[8] = {
+    "bottom_board_t1", "bottom_board_t2",
+    "laser_emitting_rt_l1", "laser_emitting_rt_l2",
+    "laser_receiving_rt_r", "laser_receiving_rt2",
+    "top_circuit_rt3", "top_circuit_rt4"
+  };
+  std::map<std::string, double> temps;
+  for (int i = 0; i < 8; ++i) {
+    temps[kLabels[i]] = status.temperature[i] / 100.0;  // 0.01 C -> C
+  }
+  PublishTemps(temps, node_ptr_->now());
+}
+
+/*
+ * UDP-tail temperature path. For sources with no live PTC socket (pcap/replay),
+ * the only temperature data present is in the UDP packet tail: rotating status
+ * ID/data slots (mapped to sensors via udp_status_id_map) plus an optional IMU
+ * temperature. Pointer arithmetic here mirrors Udp1_4Parser packet navigation;
+ * every dereference is bounds-checked against packet_len so a malformed or
+ * non-v1.4 packet is skipped rather than read out of bounds.
+ *
+ * Status fields rotate across frames (only a few IDs per packet), so values are
+ * accumulated into temp_cache_ and the latest cache is published each frame.
+ */
+void SourceDriver::ExtractTailTemps(const UdpFrame_t& frame, double timestamp)
+{
+  if (!temp_enabled_ || temp_diag_pub_ == nullptr) {
+    return;
+  }
+  const auto& id_map = driver_param.custom_param.udp_status_id_map;
+  const bool include_imu = driver_param.custom_param.temp_include_imu;
+
+  for (const auto& packet : frame) {
+    const uint8_t* p = packet.buffer;
+    const size_t len = packet.packet_len;
+    if (len < sizeof(HS_LIDAR_PRE_HEADER) + sizeof(HS_LIDAR_HEADER_ME_V4)) {
+      continue;
+    }
+    const auto* pre = reinterpret_cast<const HS_LIDAR_PRE_HEADER*>(p);
+    // Only OT128/v1.4 packets (magic EE FF 01 04: delimiter 0xffee, ver 1.4).
+    if (!pre->IsValidDelimiter() || pre->GetVersionMajor() != 1 || pre->GetVersionMinor() != 4) {
+      continue;
+    }
+    const auto* header = reinterpret_cast<const HS_LIDAR_HEADER_ME_V4*>(p + sizeof(HS_LIDAR_PRE_HEADER));
+    const uint8_t st = header->m_u8Status;
+    const size_t body_size =
+        (sizeof(HS_LIDAR_BODY_AZIMUTH_ME_V4) + header->unitSize() * header->GetLaserNum()) * header->GetBlockNum()
+        + sizeof(HS_LIDAR_BODY_CRC_ME_V4);
+    const size_t tail_offset =
+        sizeof(HS_LIDAR_PRE_HEADER) + sizeof(HS_LIDAR_HEADER_ME_V4) + body_size
+        + (hasFunctionSafety(st) ? sizeof(HS_LIDAR_FUNC_SAFETY_ME_V4) : 0);
+    if (tail_offset + sizeof(HS_LIDAR_TAIL_ME_V4) > len) {
+      continue;
+    }
+    const auto* tail = reinterpret_cast<const HS_LIDAR_TAIL_ME_V4*>(p + tail_offset);
+
+    // Three rotating reserved status slots; map known IDs to named sensors.
+    const uint8_t  ids[3]  = { tail->GetStsID0(), tail->GetStsID1(), tail->GetStsID2() };
+    const uint16_t data[3] = { tail->GetData0(),  tail->GetData1(),  tail->GetData2()  };
+    for (int i = 0; i < 3; ++i) {
+      auto it = id_map.find(ids[i]);
+      if (it != id_map.end()) {
+        temp_cache_[it->second.label] = data[i] * it->second.scale + it->second.offset;
+      }
+    }
+
+    if (include_imu && hasImu(st)) {
+      const size_t imu_offset = tail_offset + sizeof(HS_LIDAR_TAIL_ME_V4)
+          + (hasSeqNum(st) ? sizeof(HS_LIDAR_TAIL_SEQ_NUM_ME_V4) : 0);
+      if (imu_offset + sizeof(HS_LIDAR_TAIL_IMU_ME_V4) <= len) {
+        const auto* imu = reinterpret_cast<const HS_LIDAR_TAIL_IMU_ME_V4*>(p + imu_offset);
+        temp_cache_["imu"] = imu->GetIMUTemperature();
+      }
+    }
+  }
+
+  if (temp_cache_.empty()) {
+    return;
+  }
+  // Use the frame timestamp when available (seconds), else the node clock.
+  const rclcpp::Time stamp = (timestamp > 0.0)
+      ? rclcpp::Time(static_cast<int64_t>(timestamp * 1e9))
+      : node_ptr_->now();
+  PublishTemps(temp_cache_, stamp);
+}
+
+/*
+ * Shared publisher for both temperature paths. Emits one aggregated
+ * diagnostic_msgs/DiagnosticArray (one KeyValue per sensor, level computed from
+ * the hottest sensor vs. the configured warn/error thresholds) and, when
+ * temp_publish_sensor_msgs is set, one sensor_msgs/Temperature per sensor
+ * (publishers created lazily as new labels appear).
+ */
+void SourceDriver::PublishTemps(const std::map<std::string, double>& temps, const rclcpp::Time& stamp)
+{
+  if (temps.empty() || temp_diag_pub_ == nullptr) {
+    return;
+  }
+  const double warn_c  = driver_param.custom_param.temp_warn_c;
+  const double error_c = driver_param.custom_param.temp_error_c;
+
+  diagnostic_msgs::msg::DiagnosticArray arr;
+  arr.header.stamp = stamp;
+
+  diagnostic_msgs::msg::DiagnosticStatus st;
+  st.name = "OT128/temperature";
+  st.hardware_id = "OT128";
+
+  double max_c = -std::numeric_limits<double>::infinity();
+  for (const auto& kv : temps) {
+    diagnostic_msgs::msg::KeyValue item;
+    item.key = kv.first;
+    std::ostringstream val;
+    val << std::fixed << std::setprecision(1) << kv.second;
+    item.value = val.str();
+    st.values.push_back(item);
+    if (kv.second > max_c) max_c = kv.second;
+  }
+
+  if (max_c >= error_c) {
+    st.level = diagnostic_msgs::msg::DiagnosticStatus::ERROR;
+  } else if (max_c >= warn_c) {
+    st.level = diagnostic_msgs::msg::DiagnosticStatus::WARN;
+  } else {
+    st.level = diagnostic_msgs::msg::DiagnosticStatus::OK;
+  }
+  std::ostringstream msg;
+  msg << "max " << std::fixed << std::setprecision(1) << max_c << " C";
+  st.message = msg.str();
+
+  arr.status.push_back(st);
+  temp_diag_pub_->publish(arr);
+
+  if (driver_param.custom_param.temp_publish_sensor_msgs) {
+    auto qos = rclcpp::QoS(rclcpp::SensorDataQoS());
+    for (const auto& kv : temps) {
+      auto pub_it = temp_sensor_pubs_.find(kv.first);
+      if (pub_it == temp_sensor_pubs_.end()) {
+        const std::string topic = driver_param.custom_param.temp_sensor_msgs_prefix + kv.first;
+        pub_it = temp_sensor_pubs_.emplace(
+            kv.first,
+            node_ptr_->create_publisher<sensor_msgs::msg::Temperature>(topic, qos)).first;
+      }
+      sensor_msgs::msg::Temperature tmsg;
+      tmsg.header.stamp = stamp;
+      tmsg.header.frame_id = frame_id_;
+      tmsg.temperature = kv.second;
+      tmsg.variance = 0.0;
+      pub_it->second->publish(tmsg);
+    }
+  }
 }
 
 /*
