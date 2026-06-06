@@ -1,4 +1,4 @@
-rviz2: false
+rviz2: true
 lidar:
   - driver:
       use_gpu: true
@@ -8,12 +8,12 @@ lidar:
         device_ip_address: 192.168.1.201              # host_ip_address. If empty(""), the source ip of the udp point cloud is used
         udp_port: 2368                                # UDP destination port
         ptc_port: 9347                                # PTC port of lidar
-        multicast_ip_address: 255.255.255.255
+        multicast_ip_address: ""                      
 
         use_ptc_connected: true                       # Set to false when ptc connection is not used
         host_ptc_port: 0                              # PTC source port, 0 means auto
-        correction_file_path: "Your correction file path"   # The path of correction file
-        firetimes_path: "Your firetime file path"           # The path of firetimes file
+        correction_file_path: ""   # The path of correction file
+        firetimes_path: "/home/leo/ros2_sim/src/HesaiLidar_ROS_2.0/src/driver/HesaiLidar_SDK_2.0/correction/firetime_correction/OT128_Firetime Correction File.csv"           # The path of firetimes file
 
         recv_point_cloud_timeout: -1                  # The timeout of receiving point cloud
         ptc_connect_timeout: -1                       # The timeout of ptc connection
@@ -39,15 +39,15 @@ lidar:
         play_rate_: 1.0                                     # pcap play rate 
 
       rosbag_type:
-        correction_file_path: "Your correction file path"   # The path of correction file
-        firetimes_path: "Your firetime file path"           # The path of firetimes file
+        correction_file_path: ""                      # The path of correction file
+        firetimes_path: ""                            # The path of firetimes file
 
       serial_type:
         rs485_com: "Your serial port name for receiving point cloud"  # if using JT16, Port to receive the point cloud
         rs232_com: "Your serial port name for sending cmd"            # if using JT16, Port to send cmd
         point_cloud_baudrate: 3125000
         correction_save_path: ""                                      # turn on when you need to store angle calibration files(from lidar)
-        correction_file_path: "Your correction file path"             # The path of correction file
+        correction_file_path: ""                                      # The path of correction file
 
       # public module
       use_timestamp_type: 0                 # 0 use point cloud timestamp; 1 use receive timestamp

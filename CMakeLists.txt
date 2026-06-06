@@ -49,7 +49,7 @@ if(ENABLE_BARQ)
       "    git clone https://github.com/leonardonels/barq.git\n"
       "    cd ~/ros2_ws && colcon build\n"
       "Then rebuild this package with:\n"
-      "    cd ~/ros2_ws && ENABLE_BARQ=1 colcon build --packages-up-to hesai_ros_driver --cmake-args -DCMAKE_BUILD_TYPE=Release\n"
+      "    cd ~/ros2_ws && ENABLE_BARQ=1 colcon build --packages-up-to hesai_ros_driver --symlink-install --cmake-args -DCMAKE_BUILD_TYPE=Release\n"
       "============================================================\n"
     )
   endif()
