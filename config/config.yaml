@@ -113,7 +113,8 @@ lidar:
         sensor_msgs_prefix: /lidar_stats/      # Topic prefix for the per-sensor messages
         ptc_poll_period_s: 1.0                        # PTC poll interval (seconds), ptc source only
         warn_c: 60.0                                 # Hottest-sensor threshold for DiagnosticStatus WARN
-        error_c: 75.0                                # Hottest-sensor threshold for DiagnosticStatus ERROR
+        error_c: 70.0                                # Hottest-sensor threshold for DiagnosticStatus ERROR
+        # OT128 specifies an operating temperature range of -40 to 75 Celsius. Manual section 1.6
         include_imu: true                            # Include IMU temperature (udp_tail source)
         # udp_tail source only: maps rotating UDP-tail status IDs to named sensors.
         # Empty by default => unknown IDs publish nothing (fail-safe). Fill from
