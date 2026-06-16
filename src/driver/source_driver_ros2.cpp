@@ -324,27 +324,34 @@ void SourceDriver::SendPointCloudWithBarq(const LidarDecodedFrame<LidarPointXYZI
 void SourceDriver::SendPointCloudWithRos(const LidarDecodedFrame<LidarPointXYZIRT>& msg)
 {  
   sensor_msgs::msg::PointCloud2 ros_msg;
+
 #ifdef ENABLE_ZERO_COPY
   mmr_base::msg::BoundedPointcloud bounded_msg;
   if(zero_copy_enabled_){
     bounded_msg = ToBoundedMsg(msg, frame_id_);
   }else{
 #endif
+
     ros_msg = ToRosMsg(msg, frame_id_);
+
 #ifdef ENABLE_ZERO_COPY
   }
 #endif
+#ifdef LATENCY_TESTING
   // For latency testing only, we set the timestamp to the current time when the point cloud is received
   if (driver_param.custom_param.latency_testing) {
     auto now = rclcpp::Clock(RCL_ROS_TIME).now();
     ros_msg.header.stamp = now;
   }
+#endif
 #ifdef ENABLE_ZERO_COPY
   if(zero_copy_enabled_){
     bounded_pub_->publish(bounded_msg);
   }else{
 #endif
+
     pub_->publish(ros_msg);
+
 #ifdef ENABLE_ZERO_COPY
   }
 #endif

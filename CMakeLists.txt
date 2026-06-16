@@ -21,6 +21,7 @@ endif()
 option(ENABLE_BARQ "Enable BARQ for high-performance packet processing" OFF)
 option(ENABLE_VERBOSE "Enable verbose logging for debugging purposes" OFF)
 option(ENABLE_ZERO_COPY "Enable Zero Copy for ROS2 low latency comunication" OFF)
+option(LATENCY_TESTING "Print latency information for each BARQ callback" OFF)
 
 #=======================================
 # Verbose logging
@@ -38,6 +39,16 @@ else()
     "-- VERBOSE LOGGING is DISABLED - TO ENABLE VERBOSE LOGGING, SET -DENABLE_VERBOSE=ON BEFORE BUILDING\n"
     "============================================================\n"
   )
+endif()
+
+#=======================================
+# Overwrite the header timestamp just before publishing to allow a sort of transport latency measurement
+#=======================================
+if(LATENCY_TESTING)
+  message(STATUS "Latency testing: ENABLED")
+  add_definitions(-DLATENCY_TESTING)
+else()
+  message(STATUS "Latency testing: DISABLED")
 endif()
 
 #=======================================
