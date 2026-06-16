@@ -25,6 +25,7 @@ typedef struct CustomParam
 {
   bool real_time_timestamp = false;
   bool latency_testing = false;
+  bool zero_copy_enabled = false;
 #ifdef ENABLE_BARQ
   bool BARQ_enable = false;
   std::string BARQ_topic = "/lidar_points";

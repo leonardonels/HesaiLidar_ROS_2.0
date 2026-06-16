@@ -5,12 +5,22 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 add_compile_options(-Wall)
+set(HESAI_ROS_DRIVER_CUDA_ARCH "87" CACHE STRING "CUDA arch for the GPU backend (Orin = 87)")
+
+if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
+  set(CMAKE_CUDA_ARCHITECTURES ${HESAI_ROS_DRIVER_CUDA_ARCH})
+endif()
+
+if(POLICY CMP0074)
+  cmake_policy(SET CMP0074 NEW)
+endif()
 
 #=======================================
 # Options and configurations
 #=======================================
 option(ENABLE_BARQ "Enable BARQ for high-performance packet processing" OFF)
 option(ENABLE_VERBOSE "Enable verbose logging for debugging purposes" OFF)
+option(ENABLE_ZERO_COPY "Enable Zero Copy for ROS2 low latency comunication" OFF)
 
 #=======================================
 # Verbose logging
@@ -25,9 +35,34 @@ if(ENABLE_VERBOSE)
 else()
   message(
     "============================================================\n"
-    "-- VERBOSE LOGGING is DISABLED - IF YOU WANT TO ENABLE VERBOSE LOGGING, PLEASE SET -DENABLE_VERBOSE=ON WHEN BUILDING THIS PACKAGE\n"
+    "-- VERBOSE LOGGING is DISABLED - TO ENABLE VERBOSE LOGGING, SET -DENABLE_VERBOSE=ON BEFORE BUILDING\n"
     "============================================================\n"
   )
+endif()
+
+#=======================================
+# Zero Copy support
+#=======================================
+if($ENV{RMW_FASTRTPS_USE_QOS_FROM_XML})
+  set(ENABLE_ZERO_COPY ON)
+endif()
+
+if(ENABLE_ZERO_COPY)
+  find_package(mmr_base QUIET)
+  if (mmr_base_FOUND)
+    message(
+      "============================================================\n"
+      "-- ZERO COPY is ENABLED\n"
+      "============================================================\n"
+    )
+  else()
+    message(
+      "============================================================\n"
+      "-- ZERO COPY is DISABLED - PLEASE SET ENV RMW_FASTRTPS_USE_QOS_FROM_XML=1 BEFORE BUILDING TO USE ZERO COPY\n"
+      "============================================================\n"
+    )
+  endif()
+  add_definitions(-DENABLE_ZERO_COPY)
 endif()
 
 #=======================================
@@ -62,7 +97,7 @@ if(ENABLE_BARQ)
 else()
   message( 
     "============================================================\n"
-    "-- BARQ is DISABLED - IF YOU WANT TO ENABLE BARQ, PLEASE SET ENV ENABLE_BARQ=1 BEFORE BUILDING THIS PACKAGE\n"
+    "-- BARQ is DISABLED - PLEASE SET ENV ENABLE_BARQ=1 BEFORE BUILDING TO USE BARQ\n"
     "============================================================\n"
   )
 endif()
@@ -219,28 +254,25 @@ target_include_directories(hesai_ros_driver_node PRIVATE
 
 find_package(ament_index_cpp REQUIRED)
 
+set(NODE_DEPENDENCIES
+  "ament_index_cpp"
+  "rcl_interfaces"
+  "rclcpp"
+  "rcutils"
+  "std_msgs"
+  "sensor_msgs"
+  "diagnostic_msgs"
+)
+
 if(barq_FOUND)
-ament_target_dependencies(hesai_ros_driver_node
-  "ament_index_cpp"
-  "rcl_interfaces"
-  "rclcpp"
-  "rcutils"
-  "std_msgs"
-  "sensor_msgs"
-  "diagnostic_msgs"
-  "barq"
-)
-else()
-ament_target_dependencies(hesai_ros_driver_node
-  "ament_index_cpp"
-  "rcl_interfaces"
-  "rclcpp"
-  "rcutils"
-  "std_msgs"
-  "sensor_msgs"
-  "diagnostic_msgs"
-)
+  list(APPEND NODE_DEPENDENCIES "barq")
 endif()
+
+if(mmr_base_FOUND)
+  list(APPEND NODE_DEPENDENCIES "mmr_base")
+endif()
+
+ament_target_dependencies(hesai_ros_driver_node ${NODE_DEPENDENCIES})
 
 
 if(($ENV{ROS_DISTRO} STREQUAL "kilted") OR ($ENV{ROS_DISTRO} STREQUAL "jazzy") OR ($ENV{ROS_DISTRO} STREQUAL "humble"))

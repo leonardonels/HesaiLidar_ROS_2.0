@@ -28,27 +28,6 @@
  * Created on June 12, 2023, 10:46 AM
  */
 
-/*
- * TODO:
- * - [ ] verify whata ptp pipeline actually does
- * - [x] apply to the imu the same rotation as the point cloud
- * - [x] separate barq from ros2
- * - [x] verify where the ring option of the pcl is used and maybe lost in the ROS2 pipeline and add it back
- *        -> is not, it is the uint16_t sized element.
- * - [x] write a cuda kernel function to optimize the bubble/cube filtering
- * - [ ] change the SDK to allow multiple callbacks for the same type of data
- *          // before
- *          void RegRecvCallback(const std::function<void(const LidarDecodedFrame<T_Point>&)>& callback) {
- *            point_cloud_cb_ = callback;
- *          }
- *          
- *          // after
- *          void RegRecvCallback(const std::function<void(const LidarDecodedFrame<T_Point>&)>& callback) {
- *            point_cloud_cbs_.push_back(callback);
- *          }
- * - [x] parametrize the baqr "topic name"
- */
-
 #include "hesai_ros_driver/driver/source_driver_ros2.hpp"
 
 #include <iomanip>
@@ -84,7 +63,17 @@ void SourceDriver::Init(const YAML::Node& config)
   // qos.keep_last(10);
 
   if (driver_param.input_param.send_point_cloud_ros) {
-    pub_ = node_ptr_->create_publisher<sensor_msgs::msg::PointCloud2>(driver_param.input_param.ros_send_point_topic, qos);
+#ifdef ENABLE_ZERO_COPY
+    if (driver_param.custom_param.zero_copy_enabled) {
+      bounded_pub_ = node_ptr_->create_publisher<mmr_base::msg::BoundedPointcloud>(driver_param.input_param.ros_send_point_topic, qos); 
+      zero_copy_enabled_ = true;
+    } else {
+#endif
+      pub_ = node_ptr_->create_publisher<sensor_msgs::msg::PointCloud2>(driver_param.input_param.ros_send_point_topic, qos);
+#ifdef ENABLE_ZERO_COPY
+
+    }
+#endif
   }
   if (driver_param.input_param.send_imu_ros) {
     imu_pub_ = node_ptr_->create_publisher<sensor_msgs::msg::Imu>(driver_param.input_param.ros_send_imu_topic, qos);
@@ -333,14 +322,32 @@ void SourceDriver::SendPointCloudWithBarq(const LidarDecodedFrame<LidarPointXYZI
  * measured by the subscriber.
  */
 void SourceDriver::SendPointCloudWithRos(const LidarDecodedFrame<LidarPointXYZIRT>& msg)
-{
-  sensor_msgs::msg::PointCloud2 ros_msg = ToRosMsg(msg, frame_id_);
+{  
+  sensor_msgs::msg::PointCloud2 ros_msg;
+#ifdef ENABLE_ZERO_COPY
+  mmr_base::msg::BoundedPointcloud bounded_msg;
+  if(zero_copy_enabled_){
+    bounded_msg = ToBoundedMsg(msg, frame_id_);
+  }else{
+#endif
+    ros_msg = ToRosMsg(msg, frame_id_);
+#ifdef ENABLE_ZERO_COPY
+  }
+#endif
   // For latency testing only, we set the timestamp to the current time when the point cloud is received
   if (driver_param.custom_param.latency_testing) {
     auto now = rclcpp::Clock(RCL_ROS_TIME).now();
     ros_msg.header.stamp = now;
   }
-  pub_->publish(ros_msg);
+#ifdef ENABLE_ZERO_COPY
+  if(zero_copy_enabled_){
+    bounded_pub_->publish(bounded_msg);
+  }else{
+#endif
+    pub_->publish(ros_msg);
+#ifdef ENABLE_ZERO_COPY
+  }
+#endif
 }
 
 /*
@@ -650,6 +657,41 @@ sensor_msgs::msg::PointCloud2 SourceDriver::ToRosMsg(const LidarDecodedFrame<Lid
   ros_msg.header.frame_id = frame_id_;
   return ros_msg;
 }
+
+#ifdef ENABLE_ZERO_COPY
+mmr_base::msg::BoundedPointcloud SourceDriver::ToBoundedMsg(const LidarDecodedFrame<LidarPointXYZIRT>& frame, const std::string& frame_id)
+{
+  auto loaned = bounded_pub_->borrow_loaned_message();
+  auto& msg = loaned.get();
+  double frame_start_timestamp = (frame.fParam.IsMultiFrameFrequency() == 0) ? frame.frame_start_timestamp : frame.multi_frame_start_timestamp;
+  size_t n_real_points = frame.points_num;
+
+  uint8_t* p = msg.data.data();
+  for (uint32_t i = 0; i < frame.points_num; ++i) {
+    const auto& src = frame.points[i];
+    const float    fx = src.x, fy = src.y, fz = src.z, fi = src.intensity;
+    const uint16_t r  = src.ring;
+    const double   ts = src.timestamp;
+    std::memcpy(p +  0, &fx, 4);
+    std::memcpy(p +  4, &fy, 4);
+    std::memcpy(p +  8, &fz, 4);
+    std::memcpy(p + 12, &fi, 4);
+    std::memcpy(p + 16, &r,  2);
+    std::memcpy(p + 18, &ts, 8);
+    p += 26;
+  }
+
+  msg.width = n_real_points;
+  auto sec = (uint64_t)floor(frame_start_timestamp);
+  if (sec <= std::numeric_limits<int32_t>::max()) {
+    msg.stamp.sec = (uint32_t)floor(frame_start_timestamp + driver_start_timestamp_);
+    msg.stamp.nanosec = (uint32_t)round((frame_start_timestamp + driver_start_timestamp_ - msg.stamp.sec) * 1e9);
+  } else {
+    printf("does not support timestamps greater than 19 January 2038 03:14:07 (now %lf)\n", frame_start_timestamp);
+  }
+  return msg;
+}
+#endif
 
 /*
  * Converts a vector of raw UDP packets into a hesai_ros_driver::msg::UdpFrame.

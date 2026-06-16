@@ -56,6 +56,9 @@
 #include "barq/barq.hpp"
 #include "barq/barq_pcl.hpp"
 #endif
+#ifdef ENABLE_ZERO_COPY
+#include <mmr_base/msg/bounded_pointcloud.hpp>
+#endif
 
 class SourceDriver
 {
@@ -118,6 +121,10 @@ protected:
   hesai_ros_driver::msg::Firetime ToRosMsg(const double *firetime_correction_);
   // Convert point clouds into ROS messages
   sensor_msgs::msg::PointCloud2 ToRosMsg(const LidarDecodedFrame<LidarPointXYZIRT>& frame, const std::string& frame_id);
+#ifdef ENABLE_ZERO_COPY
+  // Convert point clouds into bounded ROS messages for zero copy transfer
+  mmr_base::msg::BoundedPointcloud ToBoundedMsg(const LidarDecodedFrame<LidarPointXYZIRT>& frame, const std::string& frame_id);
+#endif
   // Convert packets into ROS messages
   hesai_ros_driver::msg::UdpFrame ToRosMsg(const UdpFrame_t& ros_msg, double timestamp);
   // Convert imu, imu into ROS message
@@ -136,6 +143,9 @@ protected:
   rclcpp::Subscription<hesai_ros_driver::msg::UdpFrame>::SharedPtr pkt_sub_;
   rclcpp::Publisher<hesai_ros_driver::msg::UdpFrame>::SharedPtr pkt_pub_;
   rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr pub_;
+#ifdef ENABLE_ZERO_COPY
+  rclcpp::Publisher<mmr_base::msg::BoundedPointcloud>::SharedPtr bounded_pub_;
+#endif
   rclcpp::Publisher<hesai_ros_driver::msg::Firetime>::SharedPtr firetime_pub_;
   rclcpp::Publisher<std_msgs::msg::UInt8MultiArray>::SharedPtr crt_pub_;
   rclcpp::Publisher<hesai_ros_driver::msg::LossPacket>::SharedPtr loss_pub_;
@@ -157,6 +167,7 @@ protected:
   boost::thread* subscription_spin_thread_;
 
   bool barq_enabled_ = false;
+  bool zero_copy_enabled_ = false;
 #ifdef ENABLE_BARQ
   // BARQ writer for shared memory publishing of point clouds (optional, alongside ROS2 topics)
   std::unique_ptr<BARQ::Writer> barq_writer_;

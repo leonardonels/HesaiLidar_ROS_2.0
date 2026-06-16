@@ -1,8 +1,34 @@
 #pragma once
+#include <iostream>
+#include <string>
 #include "hesai_ros_driver/utils/yaml_reader.hpp"
 #include "hesai_lidar_sdk.hpp"
 // include custom driver param that extends the SDK DriverParam
 #include "hesai_ros_driver/driver/custom_driver_param.h"
+
+// Correction/firetime files are shipped inside the SDK. PROJECT_PATH is the
+// package source dir (defined in CMakeLists.txt).
+#ifndef PROJECT_PATH
+#define PROJECT_PATH "."
+#endif
+#define HESAI_SDK_CORRECTION_DIR \
+    PROJECT_PATH "/src/driver/HesaiLidar_SDK_2.0/correction"
+
+// Resolves a correction/firetime config value. An empty value is left empty
+// (SDK default behaviour). A value containing a path separator is treated as an
+// explicit (absolute or relative) path and used as-is. A bare filename, e.g.
+// "OT128_Angle Correction File.csv", is resolved against the SDK correction
+// directory under the given sub-folder ("angle_correction" / "firetime_correction").
+inline std::string ResolveCorrectionPath(const std::string& value, const std::string& sub_dir)
+{
+    if (value.empty() || value.find('/') != std::string::npos) {
+        return value;
+    }
+    std::string resolved = std::string(HESAI_SDK_CORRECTION_DIR) + "/" + sub_dir + "/" + value;
+    std::cout << "Resolved \"" << value << "\" to SDK correction file: " << resolved << std::endl;
+    return resolved;
+}
+
 class DriveYamlParam
 {
 public:
@@ -27,6 +53,8 @@ public:
             YamlRead<uint16_t>(   driver_config["lidar_udp_type"], "host_ptc_port",           driver_param.input_param.host_ptc_port, 0);
             YamlRead<std::string>(driver_config["lidar_udp_type"], "correction_file_path",    driver_param.input_param.correction_file_path, "");
             YamlRead<std::string>(driver_config["lidar_udp_type"], "firetimes_path",          driver_param.input_param.firetimes_path, "");
+            driver_param.input_param.correction_file_path = ResolveCorrectionPath(driver_param.input_param.correction_file_path, "angle_correction");
+            driver_param.input_param.firetimes_path       = ResolveCorrectionPath(driver_param.input_param.firetimes_path, "firetime_correction");
             YamlRead<std::string>(driver_config["lidar_udp_type"], "host_ip_address",         driver_param.input_param.host_ip_address, "192.168.1.100");
             YamlRead<uint16_t>(   driver_config["lidar_udp_type"], "fault_message_port",      driver_param.input_param.fault_message_port, 0);
             YamlRead<int>(        driver_config["lidar_udp_type"], "standby_mode",            driver_param.input_param.standby_mode, -1);
@@ -44,6 +72,8 @@ public:
             YamlRead<std::string>(driver_config["pcap_type"], "pcap_path",                    driver_param.input_param.pcap_path, "");
             YamlRead<std::string>(driver_config["pcap_type"], "correction_file_path",         driver_param.input_param.correction_file_path, "");
             YamlRead<std::string>(driver_config["pcap_type"], "firetimes_path",               driver_param.input_param.firetimes_path, "");
+            driver_param.input_param.correction_file_path = ResolveCorrectionPath(driver_param.input_param.correction_file_path, "angle_correction");
+            driver_param.input_param.firetimes_path       = ResolveCorrectionPath(driver_param.input_param.firetimes_path, "firetime_correction");
             YamlRead<float>(      driver_config["pcap_type"], "play_rate_",                   driver_param.decoder_param.play_rate_, 1.0);
             YamlRead<bool>(       driver_config["pcap_type"], "pcap_play_synchronization",    driver_param.decoder_param.pcap_play_synchronization, false);
             YamlRead<bool>(       driver_config["pcap_type"], "pcap_play_in_loop",            driver_param.decoder_param.pcap_play_in_loop, false);
@@ -52,6 +82,8 @@ public:
         else if (source_type == 3) {
             YamlRead<std::string>(driver_config["rosbag_type"], "correction_file_path",       driver_param.input_param.correction_file_path, "");
             YamlRead<std::string>(driver_config["rosbag_type"], "firetimes_path",             driver_param.input_param.firetimes_path, "");
+            driver_param.input_param.correction_file_path = ResolveCorrectionPath(driver_param.input_param.correction_file_path, "angle_correction");
+            driver_param.input_param.firetimes_path       = ResolveCorrectionPath(driver_param.input_param.firetimes_path, "firetime_correction");
         }
         else if (source_type == 4) {
             YamlRead<std::string>(driver_config["serial_type"], "rs485_com",                  driver_param.input_param.rs485_com, "/dev/ttyUSB0");
@@ -59,6 +91,7 @@ public:
             YamlRead<int>(        driver_config["serial_type"], "point_cloud_baudrate",       driver_param.input_param.point_cloud_baudrate, 3125000);
             YamlRead<std::string>(driver_config["serial_type"], "correction_save_path",       driver_param.input_param.correction_save_path, "");
             YamlRead<std::string>(driver_config["serial_type"], "correction_file_path",       driver_param.input_param.correction_file_path, "");
+            driver_param.input_param.correction_file_path = ResolveCorrectionPath(driver_param.input_param.correction_file_path, "angle_correction");
         }
         YamlRead<float>(      driver_config, "frame_start_azimuth",       driver_param.decoder_param.frame_start_azimuth, -1);
         YamlRead<uint16_t>(   driver_config, "use_timestamp_type",        driver_param.decoder_param.use_timestamp_type, 0);
@@ -107,6 +140,7 @@ public:
         YamlRead<bool>(       config["ros"], "BARQ_enable",               driver_param.custom_param.BARQ_enable, false);
         YamlRead<std::string>(config["ros"], "BARQ_topic",                driver_param.custom_param.BARQ_topic, "/lidar_points");
 #endif
+        YamlRead<bool>(       config["ros"], "zero_copy_enabled",         driver_param.custom_param.zero_copy_enabled, true);
         // min distance filter (bubble filter)
         {
           bool bubble_filter = false;

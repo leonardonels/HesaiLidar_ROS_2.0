@@ -16,6 +16,7 @@
   <depend>ament_index_cpp</depend>
   <depend>rclcpp_action</depend>
   <build_depend condition="$ENABLE_BARQ == 1">barq</build_depend>
+  <build_depend condition="$RMW_FASTRTPS_USE_QOS_FROM_XML == 1">mmr_base</build_depend>
 
   <member_of_group>rosidl_interface_packages</member_of_group>
 
