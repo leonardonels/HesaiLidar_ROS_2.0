@@ -49,6 +49,16 @@ void SourceDriver::Init(const YAML::Node& config)
   yaml_param.GetDriveYamlParam(config, driver_param);
   frame_id_ = driver_param.input_param.frame_id;
 
+  // Bring up the Hesai logger synchronously, up front. The SDK only configures
+  // and starts it later from a background thread inside driver_ptr_->Init()
+  // (InitThread -> lidar_ptr_->Init()), so any LogInfo/LogError emitted during
+  // this setup (BARQ, temperature, ...) would otherwise be dropped or raced.
+  // Start() is idempotent, so the SDK's later re-init is a no-op.
+  Logger::GetInstance().SetFileName(driver_param.log_path.c_str());
+  Logger::GetInstance().setLogTargetRule(driver_param.log_Target);
+  Logger::GetInstance().setLogLevelRule(driver_param.log_level);
+  Logger::GetInstance().Start();
+
   if (driver_param.custom_param.real_time_timestamp)
   {
     rclcpp::Clock clock(RCL_ROS_TIME);
@@ -121,9 +131,9 @@ void SourceDriver::Init(const YAML::Node& config)
     barq_writer_   = std::make_unique<BARQ::Writer>(driver_param.custom_param.BARQ_topic, barq_max_size_, false);
     if (barq_writer_->init()) {
       barq_enabled_ = true;
-      RCLCPP_INFO(node_ptr_->get_logger(), "BARQ writer initialized (%zu bytes).", barq_max_size_);
+      LogInfo("BARQ writer initialized (%zu bytes)", barq_max_size_);
     } else {
-      RCLCPP_ERROR(node_ptr_->get_logger(), "Failed to initialize BARQ writer.");
+      LogError("Failed to initialize BARQ writer");
       barq_writer_.reset();
     }
   }
@@ -199,8 +209,7 @@ void SourceDriver::Init(const YAML::Node& config)
               this->ExtractTailTemps(f, ts);
             }));
       }
-      RCLCPP_INFO(node_ptr_->get_logger(),
-        "Temperature publishing enabled (source=%s, topic=%s).",
+      LogInfo("Temperature publishing enabled (source=%s, topic=%s).",
         eff.c_str(), driver_param.custom_param.temp_topic.c_str());
     }
   }
