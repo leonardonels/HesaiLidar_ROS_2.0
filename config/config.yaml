@@ -14,8 +14,8 @@ lidar:
         host_ptc_port: 0                              # PTC source port, 0 means auto
         # Either a full path, or just the file name (resolved automatically from the SDK correction dir),
         # e.g. correction_file_path: "OT128_Angle Correction File.csv"
-        correction_file_path: ""   # The path or file name of the correction file
-        firetimes_path: ""      # The path or file name of the firetimes file
+        correction_file_path: "OT128_Angle Correction File.csv"   # The path or file name of the correction file
+        firetimes_path: "OT128_Firetime Correction File.csv"           # The path or file name of the firetimes file
 
         recv_point_cloud_timeout: -1                  # The timeout of receiving point cloud
         ptc_connect_timeout: -1                       # The timeout of ptc connection
