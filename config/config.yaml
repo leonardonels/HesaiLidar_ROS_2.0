@@ -32,7 +32,7 @@ lidar:
         caFile: ""                                    # Represents the path of the CA certificate 
 
       pcap_type:
-        pcap_path: "/home/orin/Downloads/26_03_31_15_45_tcpdump.pcap"                         # The path of pcap file
+        pcap_path: "/home/orin/logs/july-2026/pcap/tcpdump__6.pcap"                         # The path of pcap file
         # Either a full path, or just the file name (resolved automatically from the SDK correction dir).
         correction_file_path: "OT128_Angle Correction File.csv"   # The path or file name of the correction file
         firetimes_path: "OT128_Firetime Correction File.csv"           # The path or file name of the firetimes file
@@ -60,7 +60,7 @@ lidar:
       x: 0
       y: 0
       z: 1.1
-      roll: 0.087
+      roll: 0.0349066     # 0.0349066 -> -2 degrees; 0.0174533 -> -1 degree
       pitch: 0
       yaw: 1.57
       # fov config, [fov_start, fov_end] range [1, 359], [-1, -1]means use default
@@ -90,7 +90,7 @@ lidar:
         # ros_send_firetime_topic: /lidar_firetime
       ros_send_ptp_topic: /lidar_ptp                # Topic used to send PTP lock status, offset through ROS
       send_packet_ros: false                          # true: Send packets through ROS 
-      send_point_cloud_ros: false                      # true: Send point cloud through ROS    
+      send_point_cloud_ros: true                      # true: Send point cloud through ROS    
       send_imu_ros: true                              # true: Send imu through ROS    
 
       # custom_params
@@ -98,10 +98,10 @@ lidar:
       latency_testing: false                            # true: use this for latency testing, point cloud timestamp is the time when the point cloud is published
 
       # Zero Copy
-      zero_copy_enabled: true
+      zero_copy_enabled: false
 
       # BARQ params
-      BARQ_enable: true                             # Enable BARQ
+      BARQ_enable: false                             # Enable BARQ
       BARQ_topic: "/lidar_points"                   
 
       bubble_filter: true                            # Enable bubble filter
