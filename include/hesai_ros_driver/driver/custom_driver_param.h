@@ -26,6 +26,14 @@ typedef struct CustomParam
   bool real_time_timestamp = false;
   bool latency_testing = false;
   bool zero_copy_enabled = false;
+  // Out-of-band frame tick. Empty (the default, and what the car runs) publishes
+  // nothing. When set, one sensor_msgs/TimeReference goes out immediately after
+  // every point cloud, carrying the cloud's capture stamp in header.stamp and
+  // CLOCK_MONOTONIC-at-publish in time_ref. It exists so a profiler can time a
+  // frame from the instant it was PUBLISHED rather than from the instant the
+  // profiler itself managed to receive it -- the latter is transport-dependent,
+  // which makes it useless for comparing transports. See as_demo's monitor.
+  std::string frame_tick_topic = "";
 #ifdef ENABLE_BARQ
   bool BARQ_enable = false;
   std::string BARQ_topic = "/lidar_points";

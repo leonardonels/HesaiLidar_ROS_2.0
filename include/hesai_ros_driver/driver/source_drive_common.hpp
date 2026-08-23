@@ -141,6 +141,7 @@ public:
         YamlRead<std::string>(config["ros"], "BARQ_topic",                driver_param.custom_param.BARQ_topic, "/lidar_points");
 #endif
         YamlRead<bool>(       config["ros"], "zero_copy_enabled",         driver_param.custom_param.zero_copy_enabled, true);
+        YamlRead<std::string>(config["ros"], "frame_tick_topic",          driver_param.custom_param.frame_tick_topic, "");
         // min distance filter (bubble filter)
         {
           bool bubble_filter = false;

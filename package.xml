@@ -17,6 +17,10 @@
   <depend>rclcpp_action</depend>
   <build_depend condition="$ENABLE_BARQ == 1">barq</build_depend>
   <build_depend condition="$RMW_FASTRTPS_USE_QOS_FROM_XML == 1">mmr_base</build_depend>
+  <!-- Same package, different flag: LATENCY_TESTING publishes
+       mmr_base/LatencySample on /latency/sample/hesai. -->
+  <build_depend condition="$LATENCY_TESTING == 1">mmr_base</build_depend>
+  <exec_depend condition="$LATENCY_TESTING == 1">mmr_base</exec_depend>
 
   <member_of_group>rosidl_interface_packages</member_of_group>
 

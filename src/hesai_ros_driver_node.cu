@@ -72,9 +72,26 @@ int main(int argc, char** argv)
   // you can chose [!demo_ptr->IsPlayEnded()] or [1]
   // If you chose !demo_ptr->IsPlayEnded(), ROS node will end with the end of the PCAP.
   // If you select 1, the ROS node does not end with the end of the PCAP.
+  /* 100us here (upstream) made this thread wake ~6600 times a second to poll a
+     flag, for ~1% of a core and nothing else -- measured on this Orin, and it is
+     BY FAR the biggest single source of context switches in the process (6592/s
+     of ~7700 total; the receive thread's 1ms backpressure loop is the next at
+     971/s). It is not a pcap-replay artefact: is_pcap_end is only ever set by
+     PcapSource, so on the car this loop polls a permanently-false flag at 10 kHz
+     for the whole run.
+
+     That churn is not free to anyone else either. Interleaved with fast_LIMO's
+     21 threads it costs fast_LIMO continuity rather than CPU share -- its
+     involuntary preemptions go 91/s (no driver) to 151/s (driver replaying a
+     pcap), and a filter whose deskew and IMU prior are timing-sensitive is
+     exactly what that hurts.
+
+     20ms polls 50 times a second instead. Nothing downstream can tell: the only
+     consumer of IsPlayEnded() is this loop, and the function itself already
+     sleeps 3 SECONDS once it returns true. */
   while (!demo_ptr->IsPlayEnded() && sig_recv == false)
   {
-    std::this_thread::sleep_for(std::chrono::microseconds(100));
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
   }
   demo_ptr->Stop();
   return 0;

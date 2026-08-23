@@ -87,10 +87,13 @@ bool NodeManager::IsPlayEnded() {
     std::this_thread::sleep_for(std::chrono::seconds(3));
     printf("-----------------%d pcap(s) end, we will close the node(s)!!!-----------------\n", num);
     std::cout.flush();
-    if (system("pkill -f rviz2") == -1) {
-      printf("Command Execution Error: pkill -f rviz2\n");
-      all_pcap_end = false;
-    }
+    /* Upstream shelled out here to kill every rviz2 on the machine, by process
+       name, from inside a sensor driver -- including one a person was using to
+       look at something else. Removed. as_demo owns the lifetime of its own
+       RViz (it respawns it every cycle precisely because RViz has no reset
+       service), so this only ever fought with the orchestrator. Whether the
+       visualiser should die with the pcap is the caller's decision, not the
+       driver's. */
     std::this_thread::sleep_for(std::chrono::microseconds(1));
     std::cout.flush();
   }

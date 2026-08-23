@@ -21,7 +21,7 @@ endif()
 option(ENABLE_BARQ "Enable BARQ for high-performance packet processing" OFF)
 option(ENABLE_VERBOSE "Enable verbose logging for debugging purposes" OFF)
 option(ENABLE_ZERO_COPY "Enable Zero Copy for ROS2 low latency comunication" OFF)
-option(LATENCY_TESTING "Print latency information for each BARQ callback" OFF)
+option(LATENCY_TESTING "Publish per-frame latency samples on /latency/sample/hesai" OFF)
 
 #=======================================
 # Verbose logging
@@ -44,7 +44,18 @@ endif()
 #=======================================
 # Overwrite the header timestamp just before publishing to allow a sort of transport latency measurement
 #=======================================
+if($ENV{LATENCY_TESTING})
+  set(LATENCY_TESTING ON)
+endif()
+
 if(LATENCY_TESTING)
+  # Needs mmr_base for msg/LatencySample, exactly as ENABLE_ZERO_COPY needs it
+  # for BoundedPointcloud. See docs/DEMO_STATS.md.
+  find_package(mmr_base QUIET)
+  if(NOT mmr_base_FOUND)
+    message(FATAL_ERROR
+      "LATENCY_TESTING requires mmr_base (for msg/LatencySample) and it was not found")
+  endif()
   message(STATUS "Latency testing: ENABLED")
   add_definitions(-DLATENCY_TESTING)
 else()

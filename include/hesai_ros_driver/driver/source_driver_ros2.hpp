@@ -34,6 +34,11 @@
 #include <std_msgs/msg/u_int8_multi_array.hpp>
 #include <sensor_msgs/msg/imu.hpp>
 #include <sensor_msgs/msg/temperature.hpp>
+#include <sensor_msgs/msg/time_reference.hpp>
+#include <chrono>
+#ifdef LATENCY_TESTING
+#include <mmr_base/msg/latency_sample.hpp>
+#endif
 #include <diagnostic_msgs/msg/diagnostic_array.hpp>
 #include <map>
 #include <sstream>
@@ -122,8 +127,44 @@ protected:
   // Convert point clouds into ROS messages
   sensor_msgs::msg::PointCloud2 ToRosMsg(const LidarDecodedFrame<LidarPointXYZIRT>& frame, const std::string& frame_id);
 #ifdef ENABLE_ZERO_COPY
-  // Convert point clouds into bounded ROS messages for zero copy transfer
-  mmr_base::msg::BoundedPointcloud ToBoundedMsg(const LidarDecodedFrame<LidarPointXYZIRT>& frame, const std::string& frame_id);
+  /* Fill a LOANED BoundedPointcloud from the decoded frame and publish it.
+     Deliberately not a ToBoundedMsg() returning by value: that is what this used
+     to be, and it made the "zero copy" path the most expensive one in the
+     driver. A 3.4 MB std::array cannot be returned, assigned or const-ref
+     published without being copied, so every frame paid a 3.4 MB memset for the
+     caller's local, a 3.4 MB copy out of the loan, a 3.4 MB move-assign and a
+     3.4 MB copy back into a fresh loan at publish -- ~190 MB/s of memory traffic
+     at 19 Hz that the plain ROS path never paid, charged to this process. The
+     loan has to be filled in place and published with std::move. */
+  void SendBoundedPointcloud(const LidarDecodedFrame<LidarPointXYZIRT>& frame, const std::string& frame_id);
+#endif
+  /* Publish the out-of-band frame tick, if custom_param.frame_tick_topic is set.
+     `stamp` is the cloud's capture stamp -- the same value that propagates down
+     the stack -- so a consumer can join a tick to a downstream output. time_ref
+     carries CLOCK_MONOTONIC at publish; source is "hesai:<transport>:<width>". */
+  /* `mono_ns` is CLOCK_MONOTONIC read by the CALLER, immediately before it
+     publishes the cloud. Passed in rather than read here so that the tick and
+     the latency sample below carry the SAME instant -- two readings taken a few
+     microseconds apart would silently disagree about when the frame was sent. */
+  void PublishFrameTick(const builtin_interfaces::msg::Time& stamp, uint32_t width,
+                        int64_t mono_ns);
+
+  static int64_t MonotonicNs()
+  {
+    return std::chrono::duration_cast<std::chrono::nanoseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+  }
+
+#ifdef LATENCY_TESTING
+  /* The same per-frame stats message every stack node publishes, with t_in left
+     at zero: the driver is the origin, so it has nothing to receive. That
+     uniformity is the point -- the monitor gets one message type for every hop
+     of the chain instead of a special case for the first one, and it is what a
+     per-transport publish (one sample per path the driver wrote) will extend.
+     The TimeReference tick above stays: as_demo's replayer synchronisation
+     waits on it, and it carries the transport name and point count that this
+     message does not. */
+  void PublishLatencySample(const builtin_interfaces::msg::Time& stamp, int64_t t_out);
 #endif
   // Convert packets into ROS messages
   hesai_ros_driver::msg::UdpFrame ToRosMsg(const UdpFrame_t& ros_msg, double timestamp);
@@ -151,6 +192,20 @@ protected:
   rclcpp::Publisher<hesai_ros_driver::msg::LossPacket>::SharedPtr loss_pub_;
   rclcpp::Publisher<hesai_ros_driver::msg::Ptp>::SharedPtr ptp_pub_;
   rclcpp::Publisher<sensor_msgs::msg::Imu>::SharedPtr imu_pub_;
+  // Null unless custom_param.frame_tick_topic is set. See PublishFrameTick.
+  rclcpp::Publisher<sensor_msgs::msg::TimeReference>::SharedPtr tick_pub_;
+  std::string tick_source_;
+  /* Exactly one send path may tick, and this says which. The driver can write a
+     ROS2 cloud and a BARQ frame from the same callback, so without an owner both
+     would tick and every downstream consumer would see two t0s per frame. The
+     ROS/zero-copy path owns it whenever send_point_cloud_ros is on; BARQ owns it
+     only when it is the sole transport, which is the configuration a BARQ
+     measurement should be taken in anyway. */
+  bool tick_owner_barq_ = false;
+#ifdef LATENCY_TESTING
+  rclcpp::Publisher<mmr_base::msg::LatencySample>::SharedPtr latency_sample_pub_;
+  uint32_t latency_seq_ = 0;
+#endif
 
   // Temperature publishers + state. temp_diag_pub_ is the primary aggregated
   // output; temp_sensor_pubs_ holds one optional sensor_msgs/Temperature pub per

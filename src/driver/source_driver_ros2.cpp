@@ -138,6 +138,41 @@ void SourceDriver::Init(const YAML::Node& config)
     }
   }
 #endif
+  if (!driver_param.custom_param.frame_tick_topic.empty()) {
+    /* RELIABLE and deep, unlike everything else here. The tick is a ~60 byte
+       message and it is the t0 of every latency sample downstream of it: a
+       dropped tick is a frame that can never be timed, which would show up as a
+       missing sample rather than as an error. It costs nothing to guarantee. */
+    tick_pub_ = node_ptr_->create_publisher<sensor_msgs::msg::TimeReference>(
+        driver_param.custom_param.frame_tick_topic,
+        rclcpp::QoS(rclcpp::KeepLast(100)).reliable());
+#ifdef LATENCY_TESTING
+    latency_sample_pub_ = node_ptr_->create_publisher<mmr_base::msg::LatencySample>(
+        "/latency/sample/hesai", rclcpp::QoS(rclcpp::KeepLast(100)).reliable());
+    LogInfo("LATENCY_TESTING: per-frame samples on /latency/sample/hesai");
+#endif
+    /* Names the path that actually EMITS the tick, not the fastest one that
+       happens to be enabled: with send_point_cloud_ros on, the ROS/zero-copy
+       branch ticks and BARQ is a passenger, so calling the run "barq" here
+       would label a measurement after a transport that did not carry it. */
+    tick_owner_barq_ = barq_enabled_ && !driver_param.input_param.send_point_cloud_ros;
+    tick_source_ = std::string("hesai:") +
+        (tick_owner_barq_ ? "barq" : (zero_copy_enabled_ ? "zero_copy" : "ros2"));
+    LogInfo("frame tick on %s (%s)", driver_param.custom_param.frame_tick_topic.c_str(),
+            tick_source_.c_str());
+  }
+
+  /* Both transports from one callback is legal and is what the on-car stack
+     runs -- but it is not a measurement. SendPointCloudWithRos serialises ~1.6 MB
+     inline on this thread (publishMode is SYNCHRONOUS) before the BARQ branch is
+     even reached, so a "BARQ" run configured this way still pays every cent of
+     the ROS2 cost BARQ exists to remove. For an A/B, turn send_point_cloud_ros
+     off -- which is only possible now that every consumer of the cloud
+     (cuda_cone_rush and fast_LIMO) has a BARQ reader. */
+  if (driver_param.input_param.send_point_cloud_ros && barq_enabled_) {
+    LogWarning("send_point_cloud_ros AND BARQ_enable are both on: every frame is "
+               "published twice. Fine on the car, NOT a transport measurement.");
+  }
   if (driver_param.input_param.send_point_cloud_ros || barq_enabled_) {
     driver_ptr_->RegRecvCallback([this](const LidarDecodedFrame<LidarPointXYZIRT>& frame) {
       if (driver_param.input_param.send_point_cloud_ros)
@@ -291,7 +326,19 @@ std::vector<uint8_t> SourceDriver::SerializePointCloudForBarq(const LidarDecoded
   hdr.width      = frame.points_num;
   hdr.height     = 1;
   hdr.point_step = sizeof(BARQPoint);
-  hdr.timestamp  = frame.frame_start_timestamp;
+  /* driver_start_timestamp_ MUST be added, exactly as ToRosMsg and
+     SendBoundedPointcloud do at the equivalent line. This is the SAME omission
+     that was found and fixed on the zero-copy path; BARQ still had it.
+
+     Without it the BARQ frame stamp stays on the sensor's raw clock while the
+     frame tick and the republished PointCloud2 are shifted into wall-clock
+     time, so cuda_cone_rush stamps its cones with a time no consumer can match.
+     Measured before this fix, bag 6 under barq: 1780 of 1807 cone outputs
+     UNMATCHED, cone_rush/cone_fused/stellation dropped out of the results
+     database entirely, and the arm looked like it was "replayed, not computed".
+     Harmless only when the offset is 0 (real_time_timestamp: false), which is
+     why it survived -- the demo runs with it true. */
+  hdr.timestamp  = frame.frame_start_timestamp + driver_start_timestamp_;
   std::memcpy(ptr, &hdr, sizeof(hdr));
   ptr += sizeof(hdr);
 
@@ -303,7 +350,11 @@ std::vector<uint8_t> SourceDriver::SerializePointCloudForBarq(const LidarDecoded
     dst.z         = src.z;
     dst.intensity = static_cast<float>(src.intensity);
     dst.ring      = src.ring;
-    dst.timestamp = src.timestamp;
+    /* Same offset, same reason, on the per-point times: FAST-LIMO takes
+       max_point_time from these and a raw-clock value breaks its deskew. It has
+       no BARQ path today, so nothing reads them yet -- which is precisely why
+       this must be right before one is added. */
+    dst.timestamp = src.timestamp + driver_start_timestamp_;
     std::memcpy(ptr, &dst, sizeof(dst));
     ptr += sizeof(dst);
   }
@@ -315,8 +366,35 @@ void SourceDriver::SendPointCloudWithBarq(const LidarDecodedFrame<LidarPointXYZI
 {
   if (!barq_enabled_ || !barq_writer_) return;
   std::vector<uint8_t> buf = SerializePointCloudForBarq(frame);
-  const size_t payload_size = sizeof(BARQFrameHeader) + frame.points_num * sizeof(BARQPoint); 
+  const size_t payload_size = sizeof(BARQFrameHeader) + frame.points_num * sizeof(BARQPoint);
+
+  /* The same stamp the frame header carries (see SerializePointCloudForBarq),
+     rebuilt here in ROS form so a tick from this path joins against a downstream
+     sample exactly as the other two transports' ticks do. */
+  builtin_interfaces::msg::Time stamp;
+  const double frame_ts = frame.frame_start_timestamp + driver_start_timestamp_;
+  stamp.sec = (uint32_t)floor(frame_ts);
+  stamp.nanosec = (uint32_t)round((frame_ts - stamp.sec) * 1e9);
+
+  /* BEFORE the write, exactly as on the other two paths: barq_writer_->write()
+     memcpys the payload into shared memory on this thread, and that copy is the
+     BARQ transport's own send cost. Reading the clock afterwards would move it
+     outside the measured interval and flatter the arm being measured.
+
+     NOTE the serialisation above is NOT inside the interval and is not free --
+     SerializePointCloudForBarq allocates a vector and copies point by point,
+     which write() then copies again. Writer::getWriteBuffer()/commit() exist to
+     collapse those two into one and are still unused; until they are, this arm
+     pays a copy the zero-copy arm does not. */
+  const int64_t t_out = MonotonicNs();
+  if (tick_owner_barq_) PublishFrameTick(stamp, frame.points_num, t_out);
+
   barq_writer_->write(buf.data(), payload_size);
+
+#ifdef LATENCY_TESTING
+  // After the payload, carrying the instant from before it. See SendPointCloudWithRos.
+  if (tick_owner_barq_) PublishLatencySample(stamp, t_out);
+#endif
 }
 #endif
 
@@ -331,21 +409,19 @@ void SourceDriver::SendPointCloudWithBarq(const LidarDecodedFrame<LidarPointXYZI
  * measured by the subscriber.
  */
 void SourceDriver::SendPointCloudWithRos(const LidarDecodedFrame<LidarPointXYZIRT>& msg)
-{  
-  sensor_msgs::msg::PointCloud2 ros_msg;
-
+{
 #ifdef ENABLE_ZERO_COPY
-  mmr_base::msg::BoundedPointcloud bounded_msg;
-  if(zero_copy_enabled_){
-    bounded_msg = ToBoundedMsg(msg, frame_id_);
-  }else{
-#endif
-
-    ros_msg = ToRosMsg(msg, frame_id_);
-
-#ifdef ENABLE_ZERO_COPY
+  /* Returns early: the bounded path never materialises a message value, so it
+     shares no code with the branch below. Keeping the two interleaved is what
+     hid the by-value copy that used to live here. */
+  if (zero_copy_enabled_) {
+    SendBoundedPointcloud(msg, frame_id_);
+    return;
   }
 #endif
+
+  sensor_msgs::msg::PointCloud2 ros_msg = ToRosMsg(msg, frame_id_);
+
 #ifdef LATENCY_TESTING
   // For latency testing only, we set the timestamp to the current time when the point cloud is received
   if (driver_param.custom_param.latency_testing) {
@@ -353,17 +429,42 @@ void SourceDriver::SendPointCloudWithRos(const LidarDecodedFrame<LidarPointXYZIR
     ros_msg.header.stamp = now;
   }
 #endif
-#ifdef ENABLE_ZERO_COPY
-  if(zero_copy_enabled_){
-    bounded_pub_->publish(bounded_msg);
-  }else{
-#endif
 
-    pub_->publish(ros_msg);
-
-#ifdef ENABLE_ZERO_COPY
-  }
+  /* BEFORE publish, not after, and the difference is the whole measurement.
+     publishMode is SYNCHRONOUS, so pub_->publish() serialises 1.6 MB inline on
+     this thread while the zero-copy path's publish(std::move(loan)) returns
+     almost immediately. Ticking afterwards would put each transport's own send
+     cost OUTSIDE the interval being timed -- and would take more of it out of
+     the slower arm, which is backwards. Ticking here makes t0 "the frame is
+     ready to send" in both arms, so serialisation is charged to the transport
+     that pays it. */
+  const int64_t t_out = MonotonicNs();
+  PublishFrameTick(ros_msg.header.stamp, ros_msg.width * ros_msg.height, t_out);
+  pub_->publish(ros_msg);
+#ifdef LATENCY_TESTING
+  /* AFTER the cloud, carrying the instant taken BEFORE it: save T, publish the
+     payload, then publish the stats. The measurement never sits inside the
+     interval it measures, and the cloud is not delayed by it. */
+  PublishLatencySample(ros_msg.header.stamp, t_out);
 #endif
+}
+
+void SourceDriver::PublishFrameTick(const builtin_interfaces::msg::Time& stamp, uint32_t width,
+                                   int64_t mono_ns)
+{
+  if (!tick_pub_) return;
+
+  sensor_msgs::msg::TimeReference tick;
+  tick.header.stamp = stamp;
+  tick.header.frame_id = frame_id_;
+  /* CLOCK_MONOTONIC, which is what std::chrono::steady_clock is on Linux. Not
+     the ROS clock: the published stamp above is on the sensor's clock plus
+     driver_start_timestamp_, and the whole point of the tick is to carry a
+     reading of a clock that a co-located profiler can subtract from its own. */
+  tick.time_ref.sec = static_cast<int32_t>(mono_ns / 1000000000LL);
+  tick.time_ref.nanosec = static_cast<uint32_t>(mono_ns % 1000000000LL);
+  tick.source = tick_source_ + ":" + std::to_string(width);
+  tick_pub_->publish(tick);
 }
 
 /*
@@ -375,6 +476,19 @@ void SourceDriver::SendPointCloudWithRos(const LidarDecodedFrame<LidarPointXYZIR
  * this so that DATA_FROM_ROS_PACKET replay has access to the calibration
  * without a live LiDAR connection.
  */
+#ifdef LATENCY_TESTING
+void SourceDriver::PublishLatencySample(const builtin_interfaces::msg::Time& stamp, int64_t t_out)
+{
+  if (!latency_sample_pub_) return;
+  mmr_base::msg::LatencySample m;
+  m.frame_stamp = stamp;
+  m.t_in = 0;          // the origin has nothing to receive
+  m.t_out = t_out;     // CLOCK_MONOTONIC, read immediately before the cloud went out
+  m.seq = latency_seq_++;
+  latency_sample_pub_->publish(m);
+}
+#endif
+
 void SourceDriver::SendCorrection(const u8Array_t& msg)
 {
   crt_pub_->publish(ToRosMsg(msg));
@@ -675,7 +789,7 @@ sensor_msgs::msg::PointCloud2 SourceDriver::ToRosMsg(const LidarDecodedFrame<Lid
 }
 
 #ifdef ENABLE_ZERO_COPY
-mmr_base::msg::BoundedPointcloud SourceDriver::ToBoundedMsg(const LidarDecodedFrame<LidarPointXYZIRT>& frame, const std::string& frame_id)
+void SourceDriver::SendBoundedPointcloud(const LidarDecodedFrame<LidarPointXYZIRT>& frame, const std::string& frame_id)
 {
   auto loaned = bounded_pub_->borrow_loaned_message();
   auto& msg = loaned.get();
@@ -687,7 +801,21 @@ mmr_base::msg::BoundedPointcloud SourceDriver::ToBoundedMsg(const LidarDecodedFr
     const auto& src = frame.points[i];
     const float    fx = src.x, fy = src.y, fz = src.z, fi = src.intensity;
     const uint16_t r  = src.ring;
-    const double   ts = src.timestamp;
+    /* driver_start_timestamp_ MUST be added here, exactly as ToRosMsg does at
+       the equivalent line. Without it the per-point times stay on the sensor's
+       raw clock while msg.stamp below is shifted into wall-clock time, so the
+       two halves of the same message disagree by driver_start_timestamp_.
+       Harmless when that offset is 0 (a PTP-locked lidar with
+       real_time_timestamp: false, i.e. the intended on-car setup), which is why
+       it went unnoticed -- but with real_time_timestamp: true it breaks any
+       consumer that reads the per-point stamps. FAST-LIMO takes max_point_time
+       from them, so its `offset = imu_stamp - max_point_time` goes positive, its
+       "don't jump into future" clamp zeroes it, and every sweep asks
+       integrateImu for a window containing no IMU samples:
+         FAST_LIMO::ERROR: No frames obtained from IMU propagation!
+       The ROS path was unaffected the whole time, which is what makes this look
+       like a transport problem rather than a one-line omission. */
+    const double   ts = src.timestamp + driver_start_timestamp_;
     std::memcpy(p +  0, &fx, 4);
     std::memcpy(p +  4, &fy, 4);
     std::memcpy(p +  8, &fz, 4);
@@ -705,7 +833,26 @@ mmr_base::msg::BoundedPointcloud SourceDriver::ToBoundedMsg(const LidarDecodedFr
   } else {
     printf("does not support timestamps greater than 19 January 2038 03:14:07 (now %lf)\n", frame_start_timestamp);
   }
-  return msg;
+
+  /* Read what the tick needs BEFORE the move: after publish(std::move(loaned))
+     the loan belongs to the middleware and `msg` dangles. */
+  const builtin_interfaces::msg::Time stamp = msg.stamp;
+  const uint32_t width = msg.width;
+
+  // Before the publish, for the reason spelled out in SendPointCloudWithRos.
+  const int64_t t_out = MonotonicNs();
+  PublishFrameTick(stamp, width, t_out);
+
+  /* The move is the whole point. publish(const T&) would copy 3.4 MB into a
+     fresh loan and hand the filled one back unused. With data sharing off
+     (no XML profiles, so borrow_loaned_message() handed back an internally
+     owned message rather than a segment slot) this is still correct -- rclcpp
+     falls back to the ordinary publish path -- it simply is not zero copy. */
+  bounded_pub_->publish(std::move(loaned));
+#ifdef LATENCY_TESTING
+  // See SendPointCloudWithRos: after the payload, with the instant from before it.
+  PublishLatencySample(stamp, t_out);
+#endif
 }
 #endif
 
